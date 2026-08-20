@@ -1,44 +1,52 @@
 ﻿"""
 IceStream - Bad Data Injector
-Takes a clean transaction record and corrupts it in a controlled,
-labeled way. Used to simulate real-world data quality problems.
+
+Intentionally corrupts valid transaction records to simulate
+real-world data quality problems.
 """
 
-import random
 import copy
+import random
 
 
 def inject_null_tax(record):
-    """Scenario: NULL tax_amount."""
+    """Set tax_amount to NULL."""
     r = copy.deepcopy(record)
     r["tax_amount"] = None
     return r
 
 
 def inject_invalid_quantity(record):
-    """Scenario: negative or zero quantity."""
+    """Set quantity to an invalid value."""
     r = copy.deepcopy(record)
-    r["quantity"] = random.choice([-1, 0, -5])
+    r["quantity"] = random.choice([0, -1, -5])
     return r
 
 
 def inject_invalid_payment_method(record):
-    """Scenario: payment_method outside the allowed list."""
+    """Use a payment method outside the allowed list."""
     r = copy.deepcopy(record)
     r["payment_method"] = "bitcoin"
     return r
 
 
 def inject_missing_field(record):
-    """Scenario: schema change - a required field is dropped entirely."""
+    """Remove a required field to simulate schema problems."""
     r = copy.deepcopy(record)
-    field_to_drop = random.choice(["user_id", "product_id", "country"])
+
+    field_to_drop = random.choice([
+        "user_id",
+        "product_id",
+        "country",
+    ])
+
     del r[field_to_drop]
+
     return r
 
 
 def inject_negative_price(record):
-    """Scenario: invalid negative price."""
+    """Set price to a negative value."""
     r = copy.deepcopy(record)
     r["price"] = -abs(r["price"])
     return r
@@ -53,26 +61,67 @@ CORRUPTION_SCENARIOS = {
 }
 
 
-def corrupt_batch(records, error_rate=0.1, scenario=None):
+def corrupt_batch(records, error_rate=0.10, scenario=None):
+    """
+    Corrupt a percentage of records.
+
+    Args:
+        records: List of valid transaction dictionaries.
+        error_rate: Probability that each record is corrupted.
+        scenario: Specific corruption scenario or None for random selection.
+
+    Returns:
+        List containing clean and corrupted records.
+    """
+
+    if not 0 <= error_rate <= 1:
+        raise ValueError("error_rate must be between 0 and 1")
+
+    if scenario is not None and scenario not in CORRUPTION_SCENARIOS:
+        raise ValueError(
+            f"Unknown scenario: {scenario}. "
+            f"Available: {list(CORRUPTION_SCENARIOS.keys())}"
+        )
+
     result = []
+
     for record in records:
+
         if random.random() < error_rate:
-            fn = (
-                CORRUPTION_SCENARIOS[scenario]
-                if scenario
-                else random.choice(list(CORRUPTION_SCENARIOS.values()))
+
+            if scenario:
+                corruption_function = CORRUPTION_SCENARIOS[scenario]
+            else:
+                corruption_function = random.choice(
+                    list(CORRUPTION_SCENARIOS.values())
+                )
+
+            result.append(
+                corruption_function(record)
             )
-            result.append(fn(record))
+
         else:
-            result.append(record)
+            result.append(
+                copy.deepcopy(record)
+            )
+
     return result
 
 
 if __name__ == "__main__":
+
+    # Import generator from the same directory
     from generator import generate_batch
 
-    clean_batch = generate_batch(20)
-    dirty_batch = corrupt_batch(clean_batch, error_rate=0.3)
+    print("IceStream Bad Data Injector")
+    print("-" * 60)
 
-    for txn in dirty_batch:
-        print(txn)
+    clean_records = generate_batch(20)
+
+    dirty_records = corrupt_batch(
+        clean_records,
+        error_rate=0.30
+    )
+
+    for record in dirty_records:
+        print(record)

@@ -2,9 +2,7 @@
 IceStream - Validator
 Simple entry point wrapping the rules engine for use by the stream processor.
 """
-
-from rules import validate_record
-
+from .rules import validate_record
 
 class Validator:
     def __init__(self):
