@@ -1,98 +1,102 @@
 """
 IceStream - Stream Processor
 
-Consumes transactions from Kafka, runs full data-quality validation,
-maintains pipeline statistics, and routes records to:
+Pipeline:
 
-    VALID   -> storage/good_data/
-    INVALID -> storage/quarantine/
+Kafka
+  ↓
+Validator
+  ↓
+Good Data / Quarantine
+  ↓
+Pipeline Metrics
 
-Day 7: Good Data / Quarantine Separation
+Valid transactions are written to:
+    storage/good_data/
+
+Invalid transactions are written to:
+    storage/quarantine/
 """
 
 import json
 import sys
 import os
 
-
-# ---------------------------------------------------------
-# Add src/ to Python path
-# ---------------------------------------------------------
-
-SRC_DIR = os.path.abspath(
-    os.path.join(
-        os.path.dirname(__file__),
-        ".."
-    )
+# Allow imports from src/
+PROJECT_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..")
 )
 
-sys.path.insert(0, SRC_DIR)
+SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
-# ---------------------------------------------------------
-# Imports
-# ---------------------------------------------------------
 
 from kafka import KafkaConsumer
 
 from quality.validator import Validator
 
-from storage.writers import (
-    write_good_record,
-    write_quarantine_record
+from storage.storage_manager import (
+    save_good_record,
+    save_quarantine_record,
 )
 
+from observability.metrics import save_metrics
 
-# ---------------------------------------------------------
-# Kafka Configuration
-# ---------------------------------------------------------
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 KAFKA_BROKER = "localhost:9092"
 TOPIC = "transactions"
 
+# Stop after 10 seconds without receiving a message.
+CONSUMER_TIMEOUT_MS = 10000
 
-# ---------------------------------------------------------
-# Pipeline Statistics
-# ---------------------------------------------------------
+
+# ============================================================
+# PIPELINE STATISTICS
+# ============================================================
 
 class PipelineStats:
+    """Maintains running data-quality statistics."""
 
     def __init__(self):
-
         self.total = 0
-
         self.valid = 0
-
         self.invalid = 0
-
         self.error_breakdown = {}
 
-
     def record(self, is_valid, errors):
+        """Record the result of validating one transaction."""
 
         self.total += 1
 
         if is_valid:
-
             self.valid += 1
+            return
 
-        else:
+        self.invalid += 1
 
-            self.invalid += 1
+        for error in errors:
 
-            for err in errors:
+            # Example:
+            # "Invalid price: -100"
+            #
+            # becomes:
+            # "Invalid price"
 
-                key = err.split(":")[0]
+            error_type = error.split(":")[0]
 
-                self.error_breakdown[key] = (
-                    self.error_breakdown.get(key, 0) + 1
-                )
-
+            self.error_breakdown[error_type] = (
+                self.error_breakdown.get(error_type, 0) + 1
+            )
 
     def error_rate(self):
+        """Return invalid-record percentage."""
 
         if self.total == 0:
-
             return 0.0
 
         return round(
@@ -100,43 +104,40 @@ class PipelineStats:
             2
         )
 
-
     def summary(self):
+        """Return formatted pipeline summary."""
 
         lines = [
-
             (
                 f"Total: {self.total} | "
                 f"Valid: {self.valid} | "
                 f"Invalid: {self.invalid} | "
                 f"Error rate: {self.error_rate()}%"
             )
-
         ]
-
 
         if self.error_breakdown:
 
             lines.append("Error breakdown:")
 
-            for err_type, count in sorted(
+            for error_type, count in sorted(
                 self.error_breakdown.items(),
                 key=lambda x: -x[1]
             ):
 
                 lines.append(
-                    f"  - {err_type}: {count}"
+                    f"  - {error_type}: {count}"
                 )
-
 
         return "\n".join(lines)
 
 
-# ---------------------------------------------------------
-# Kafka Consumer
-# ---------------------------------------------------------
+# ============================================================
+# KAFKA CONSUMER
+# ============================================================
 
 def get_consumer():
+    """Create and return the Kafka consumer."""
 
     return KafkaConsumer(
 
@@ -146,137 +147,198 @@ def get_consumer():
 
         auto_offset_reset="earliest",
 
-        value_deserializer=lambda v:
-            json.loads(v.decode("utf-8")),
+        value_deserializer=lambda value:
+            json.loads(value.decode("utf-8")),
 
-        consumer_timeout_ms=10000
+        consumer_timeout_ms=CONSUMER_TIMEOUT_MS,
+
+        # Each processor instance uses its own group.
+        # This is useful for local testing.
+        group_id="icestream-processor",
+
     )
 
 
-# ---------------------------------------------------------
-# Main Pipeline
-# ---------------------------------------------------------
+# ============================================================
+# MAIN PROCESSING PIPELINE
+# ============================================================
 
-if __name__ == "__main__":
+def main():
 
-    consumer = get_consumer()
+    print("=" * 50)
+    print("        IceStream Stream Processor")
+    print("=" * 50)
+
+    print()
+    print(f"Kafka broker : {KAFKA_BROKER}")
+    print(f"Kafka topic  : {TOPIC}")
+    print()
+
+    print("Valid records   → storage/good_data/")
+    print("Invalid records → storage/quarantine/")
+    print()
+
+    # --------------------------------------------------------
+    # Connect to Kafka
+    # --------------------------------------------------------
+
+    try:
+
+        consumer = get_consumer()
+
+    except NoBrokersAvailable:
+
+        print("[ERROR] Kafka broker is not available.")
+        print()
+        print("Make sure Docker Desktop is running and Kafka is started:")
+        print()
+        print("    docker ps")
+        print("    docker start icestream-kafka")
+        print()
+
+        return
+
+    # --------------------------------------------------------
+    # Initialize validator and statistics
+    # --------------------------------------------------------
 
     validator = Validator()
-
     stats = PipelineStats()
-
 
     print(
         f"Processor listening on '{TOPIC}'..."
     )
 
     print(
-        "Valid records → storage/good_data/"
+        "(Stops after 10 seconds of silence)"
     )
 
-    print(
-        "Invalid records → storage/quarantine/"
-    )
+    print()
 
-    print(
-        "(stops after 10s of silence)\n"
-    )
+    # --------------------------------------------------------
+    # Consume Kafka messages
+    # --------------------------------------------------------
 
+    try:
 
-    # -----------------------------------------------------
-    # Process Kafka Messages
-    # -----------------------------------------------------
+        for message in consumer:
 
-    for message in consumer:
+            record = message.value
 
-        record = message.value
+            try:
 
+                # --------------------------------------------
+                # Validate transaction
+                # --------------------------------------------
 
-        # ---------------------------------------------
-        # Run Data Quality Validation
-        # ---------------------------------------------
+                is_valid, errors = validator.check(record)
 
-        is_valid, errors = validator.check(record)
+                # --------------------------------------------
+                # Update statistics
+                # --------------------------------------------
 
+                stats.record(
+                    is_valid,
+                    errors
+                )
 
-        # ---------------------------------------------
-        # Update Statistics
-        # ---------------------------------------------
+                transaction_id = record.get(
+                    "transaction_id",
+                    "UNKNOWN"
+                )
 
-        stats.record(
-            is_valid,
-            errors
-        )
+                # --------------------------------------------
+                # GOOD DATA
+                # --------------------------------------------
 
+                if is_valid:
 
-        txn_id = record.get(
-            "transaction_id",
-            "UNKNOWN"
-        )
+                    save_good_record(record)
 
+                    print(
+                        f"[OK]        {transaction_id} → GOOD"
+                    )
 
-        # ---------------------------------------------
-        # VALID RECORD
-        # ---------------------------------------------
+                # --------------------------------------------
+                # BAD DATA
+                # --------------------------------------------
 
-        if is_valid:
+                else:
 
-            filepath = write_good_record(
-                record
-            )
+                    save_quarantine_record(
+                        record,
+                        errors
+                    )
 
+                    print(
+                        f"[INVALID]   "
+                        f"{transaction_id} → QUARANTINE"
+                    )
 
-            print(
-                f"[OK]      {txn_id} "
-                f"→ GOOD DATA"
-            )
+                    print(
+                        f"            {errors}"
+                    )
 
+            except Exception as error:
 
-        # ---------------------------------------------
-        # INVALID RECORD
-        # ---------------------------------------------
+                print(
+                    f"[ERROR] Failed to process record: {error}"
+                )
 
-        else:
+    except KeyboardInterrupt:
 
-            filepath = write_quarantine_record(
-                record,
-                errors
-            )
+        print()
+        print("Processor stopped by user.")
 
+    finally:
 
-            print(
-                f"[INVALID] {txn_id} "
-                f"→ QUARANTINE - {errors}"
-            )
+        consumer.close()
 
+    # ========================================================
+    # PIPELINE SUMMARY
+    # ========================================================
 
-    # -----------------------------------------------------
-    # Pipeline Summary
-    # -----------------------------------------------------
-
-    print(
-        "\n--- Pipeline Summary ---"
-    )
+    print()
+    print("=" * 50)
+    print("        PIPELINE SUMMARY")
+    print("=" * 50)
 
     print(
         stats.summary()
     )
+    metric = save_metrics(stats)
 
+    print()
+    print("Metrics saved:")
+    print("storage/metrics/pipeline_metrics.jsonl")
 
-    # -----------------------------------------------------
-    # Storage Summary
-    # -----------------------------------------------------
+    print()
+
+    # ========================================================
+    # STORAGE LOCATIONS
+    # ========================================================
+
+    print("Storage:")
+    print()
 
     print(
-        "\n--- Storage Routing ---"
+        "Good data  : storage/good_data/"
     )
 
     print(
-        f"Valid records stored in: "
-        f"storage/good_data/"
+        "Quarantine : storage/quarantine/"
     )
 
-    print(
-        f"Invalid records stored in: "
-        f"storage/quarantine/"
-    )
+    print()
+
+    print("=" * 50)
+    print("        PROCESSING COMPLETE")
+    print("=" * 50)
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+    main()
