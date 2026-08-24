@@ -1,0 +1,8 @@
+{
+  "timestamp": "2026-08-24T06:50:09.800940",
+  "status": "CLOSED",
+  "pipeline_action": "CONTINUE",
+  "error_rate": 0.01,
+  "threshold": 0.02,
+  "reason": "Data quality within acceptable threshold"
+}

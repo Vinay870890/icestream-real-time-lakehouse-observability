@@ -1,10 +1,10 @@
 {
-  "total_transactions": 1,
-  "total_quantity": 2,
-  "total_revenue": 1000,
+  "total_transactions": 2,
+  "total_quantity": 4,
+  "total_revenue": 2000,
   "average_order_value": 1000.0,
   "unique_products": 1,
   "average_quantity_per_transaction": 2.0,
   "top_product": "PRD-001",
-  "top_product_revenue": 1000.0
+  "top_product_revenue": 2000.0
 }

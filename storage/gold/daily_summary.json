@@ -1,8 +1,8 @@
 {
-  "report_date": "2026-08-23",
-  "total_transactions": 1,
-  "total_quantity": 2,
-  "total_revenue": 1000,
+  "report_date": "2026-08-24",
+  "total_transactions": 2,
+  "total_quantity": 4,
+  "total_revenue": 2000,
   "average_order_value": 1000.0,
   "unique_products": 1
 }
