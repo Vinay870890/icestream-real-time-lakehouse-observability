@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-08-24T07:09:43.389067",
-  "pipeline": "IceStream",
-  "status": "HEALTHY",
-  "action": "CONTINUE",
-  "error_rate": 0.01,
-  "threshold": 0.02,
-  "reason": "Data quality within acceptable threshold"
-}

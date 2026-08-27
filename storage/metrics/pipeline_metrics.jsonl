@@ -1,3 +1,0 @@
-{"timestamp": "2026-08-22T11:00:16.837558+00:00", "total_records": 0, "valid_records": 0, "invalid_records": 0, "error_rate": 0.0, "error_breakdown": {}}
-{"timestamp": "2026-08-22T11:00:55.136584+00:00", "total_records": 0, "valid_records": 0, "invalid_records": 0, "error_rate": 0.0, "error_breakdown": {}}
-{"timestamp": "2026-08-22T11:10:39.474440+00:00", "total_records": 100, "valid_records": 86, "invalid_records": 14, "error_rate": 14.0, "error_breakdown": {"NULL values in": 14}}
