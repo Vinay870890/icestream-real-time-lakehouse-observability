@@ -1,12 +1,14 @@
 """
 IceStream - Kafka Consumer
-Reads transactions from the Kafka topic and prints them.
-This is a temporary verification consumer for Day 3;
-Day 4 replaces this with the real streaming processor.
+
+Reads real-time transactions from the Kafka topic.
 """
 
 import json
+
 from kafka import KafkaConsumer
+from kafka.errors import NoBrokersAvailable
+
 
 KAFKA_BROKER = "localhost:9092"
 TOPIC = "transactions"
@@ -17,16 +19,51 @@ def get_consumer():
         TOPIC,
         bootstrap_servers=KAFKA_BROKER,
         auto_offset_reset="earliest",
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        consumer_timeout_ms=10000,  # stop after 10s of no new messages
+        value_deserializer=lambda value:
+            json.loads(value.decode("utf-8")),
+        consumer_timeout_ms=10000,
+        group_id="icestream-verification-consumer",
     )
 
 
-if __name__ == "__main__":
-    consumer = get_consumer()
-    print(f"Listening on topic '{TOPIC}'... (will stop after 10s of silence)")
+def main():
+
+    print("=" * 50)
+    print("       ICSTREAM KAFKA CONSUMER")
+    print("=" * 50)
+
+    try:
+        consumer = get_consumer()
+
+    except NoBrokersAvailable:
+        print("[ERROR] Kafka broker is not available.")
+        return
+
     count = 0
-    for message in consumer:
-        count += 1
-        print(f"Received #{count}: {message.value}")
-    print(f"Done. Total messages received: {count}")
+
+    try:
+
+        for message in consumer:
+
+            count += 1
+
+            print(
+                f"Received #{count}: "
+                f"{message.value}"
+            )
+
+    except KeyboardInterrupt:
+
+        print()
+        print("Consumer stopped.")
+
+    finally:
+
+        consumer.close()
+
+    print()
+    print(f"Total messages received: {count}")
+
+
+if __name__ == "__main__":
+    main()
