@@ -1,0 +1,9 @@
+{"timestamp": "2026-08-22T11:00:16.837558+00:00", "total_records": 0, "valid_records": 0, "invalid_records": 0, "error_rate": 0.0, "error_breakdown": {}}
+{"timestamp": "2026-08-22T11:00:55.136584+00:00", "total_records": 0, "valid_records": 0, "invalid_records": 0, "error_rate": 0.0, "error_breakdown": {}}
+{"timestamp": "2026-08-22T11:10:39.474440+00:00", "total_records": 100, "valid_records": 86, "invalid_records": 14, "error_rate": 14.0, "error_breakdown": {"NULL values in": 14}}
+{"timestamp": "2026-08-29T17:20:38.507818+00:00", "total_records": 0, "valid_records": 0, "invalid_records": 0, "error_rate": 0.0, "error_breakdown": {}}
+{"timestamp": "2026-08-29T17:21:28.857852+00:00", "total_records": 0, "valid_records": 0, "invalid_records": 0, "error_rate": 0.0, "error_breakdown": {}}
+{"timestamp": "2026-08-29T17:22:37.986667+00:00", "total_records": 20, "valid_records": 17, "invalid_records": 3, "error_rate": 15.0, "error_breakdown": {"Missing fields": 1, "Invalid payment_method": 1, "Invalid price": 1}}
+{"timestamp": "2026-08-30T10:55:11.204612+00:00", "total_records": 0, "valid_records": 0, "invalid_records": 0, "error_rate": 0.0, "error_breakdown": {}}
+{"timestamp": "2026-08-30T10:57:41.540306+00:00", "total_records": 40, "valid_records": 29, "invalid_records": 11, "error_rate": 27.5, "error_breakdown": {"NULL values in": 2, "Missing fields": 2, "Invalid price": 5, "Invalid payment_method": 2}}
+{"timestamp": "2026-08-30T11:10:14.067124+00:00", "total_records": 20, "valid_records": 16, "invalid_records": 4, "error_rate": 20.0, "error_breakdown": {"Invalid payment_method": 2, "Missing fields": 1, "Invalid quantity": 1}}

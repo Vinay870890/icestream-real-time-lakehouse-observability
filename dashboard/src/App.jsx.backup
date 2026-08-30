@@ -30,64 +30,9 @@ const warningStyle = {
 };
 
 function App() {
-  const [pipelineStatus, setPipelineStatus] = useState("OPEN");
-
-  /*
-   * Current IceStream snapshot
-   *
-   * 20 total records
-   * 16 valid records
-   * 4 invalid records
-   *
-   * Error rate = 4 / 20 * 100 = 20%
-   */
-  const [metrics, setMetrics] = useState({
-    totalRecords: 20,
-    validRecords: 16,
-    invalidRecords: 4,
-  });
-
-  const threshold = 2;
-
-  const errorRate =
-    metrics.totalRecords > 0
-      ? (metrics.invalidRecords / metrics.totalRecords) * 100
-      : 0;
+  const [pipelineStatus, setPipelineStatus] = useState("HEALTHY");
 
   const isHealthy = pipelineStatus === "HEALTHY";
-  const isOpen = pipelineStatus === "OPEN";
-
-  const formatPercent = (value) => `${value.toFixed(1)}%`;
-
-  const togglePipeline = () => {
-    if (isOpen) {
-      setPipelineStatus("HEALTHY");
-
-      setMetrics({
-        totalRecords: 100,
-        validRecords: 100,
-        invalidRecords: 0,
-      });
-    } else {
-      setPipelineStatus("OPEN");
-
-      setMetrics({
-        totalRecords: 20,
-        validRecords: 16,
-        invalidRecords: 4,
-      });
-    }
-  };
-
-  const simulateAnomaly = () => {
-    setPipelineStatus("OPEN");
-
-    setMetrics({
-      totalRecords: 20,
-      validRecords: 16,
-      invalidRecords: 4,
-    });
-  };
 
   const nodes = [
     {
@@ -112,7 +57,7 @@ function App() {
       data: {
         label: (
           <div>
-            <div>{isHealthy ? "⚙️ PROCESS" : "🚨 PROCESS"}</div>
+            <div>{isHealthy ? "⚙️" : "🚨"} PROCESS</div>
             <small>Apache Flink</small>
             <br />
             <small>
@@ -180,6 +125,12 @@ function App() {
     },
   ];
 
+  const togglePipeline = () => {
+    setPipelineStatus(
+      isHealthy ? "QUARANTINED" : "HEALTHY"
+    );
+  };
+
   return (
     <div className="dashboard">
 
@@ -229,9 +180,7 @@ function App() {
 
         <div className="info-card">
           <span className="card-label">DATA QUALITY</span>
-          <strong>
-            {isHealthy ? "GOOD" : formatPercent(errorRate)}
-          </strong>
+          <strong>{isHealthy ? "GOOD" : "14%"}</strong>
           <span className="muted">
             Error rate monitoring
           </span>
@@ -241,7 +190,7 @@ function App() {
           className={`simulation-button ${
             isHealthy ? "simulate" : "restore"
           }`}
-          onClick={isHealthy ? simulateAnomaly : togglePipeline}
+          onClick={togglePipeline}
         >
           {isHealthy
             ? "⚠ Simulate Data Anomaly"
@@ -257,15 +206,12 @@ function App() {
           <div className="alert-icon">!</div>
 
           <div>
-            <strong>
-              Pipeline protection activated
-            </strong>
+            <strong>Pipeline protection activated</strong>
 
             <p>
-              Data quality error rate exceeded the
-              configured 2% threshold. Pipeline processing
-              has been paused and bad records have been
-              quarantined.
+              Data quality error rate exceeded the configured
+              2% threshold. Pipeline processing has been paused
+              and bad records have been quarantined.
             </p>
           </div>
 
@@ -280,109 +226,45 @@ function App() {
       <section className="section">
 
         <div className="section-heading">
-
           <div>
-            <span className="eyebrow">
-              OBSERVABILITY
-            </span>
-
+            <span className="eyebrow">OBSERVABILITY</span>
             <h2>Pipeline Health</h2>
-
-            <p>
-              Latest pipeline snapshot
-            </p>
+            <p>Latest pipeline snapshot</p>
           </div>
 
           <span className="live-badge">
             ● LIVE
           </span>
-
         </div>
 
         <div className="kpi-grid">
 
-          {/* TOTAL */}
           <div className="kpi-card">
-
-            <span className="kpi-icon">
-              Σ
-            </span>
-
-            <span className="kpi-label">
-              PROCESSED RECORDS
-            </span>
-
-            <strong>
-              {metrics.totalRecords}
-            </strong>
-
-            <small>
-              Total records processed
-            </small>
-
+            <span className="kpi-icon">Σ</span>
+            <span className="kpi-label">PROCESSED RECORDS</span>
+            <strong>100</strong>
+            <small>Total records processed</small>
           </div>
 
-          {/* VALID */}
           <div className="kpi-card">
-
-            <span className="kpi-icon">
-              ✓
-            </span>
-
-            <span className="kpi-label">
-              VALID RECORDS
-            </span>
-
-            <strong>
-              {metrics.validRecords}
-            </strong>
-
-            <small>
-              Passed validation
-            </small>
-
+            <span className="kpi-icon">✓</span>
+            <span className="kpi-label">VALID RECORDS</span>
+            <strong>86</strong>
+            <small>Passed validation</small>
           </div>
 
-          {/* INVALID */}
           <div className="kpi-card danger-card">
-
-            <span className="kpi-icon">
-              !
-            </span>
-
-            <span className="kpi-label">
-              INVALID RECORDS
-            </span>
-
-            <strong>
-              {metrics.invalidRecords}
-            </strong>
-
-            <small>
-              Failed validation
-            </small>
-
+            <span className="kpi-icon">!</span>
+            <span className="kpi-label">INVALID RECORDS</span>
+            <strong>14</strong>
+            <small>Failed validation</small>
           </div>
 
-          {/* ERROR RATE */}
           <div className="kpi-card danger-card">
-
-            <span className="kpi-icon">
-              %
-            </span>
-
-            <span className="kpi-label">
-              ERROR RATE
-            </span>
-
-            <strong>
-              {formatPercent(errorRate)}
-            </strong>
-
-            <small>
-              Threshold: {threshold}%
-            </small>
-
+            <span className="kpi-icon">%</span>
+            <span className="kpi-label">ERROR RATE</span>
+            <strong>14%</strong>
+            <small>Threshold: 2%</small>
           </div>
 
         </div>
@@ -392,29 +274,19 @@ function App() {
       {/* MAIN GRID */}
       <section className="main-grid">
 
-        {/* PIPELINE PROTECTION */}
+        {/* CIRCUIT BREAKER */}
         <div className="panel">
 
           <div className="panel-header">
-
             <div>
-              <span className="eyebrow">
-                PROTECTION
-              </span>
-
-              <h2>
-                Pipeline Protection
-              </h2>
+              <span className="eyebrow">PROTECTION</span>
+              <h2>Pipeline Protection</h2>
             </div>
 
-            <span className="panel-icon">
-              ⚡
-            </span>
-
+            <span className="panel-icon">⚡</span>
           </div>
 
           <div className="protection-status">
-
             <span
               className={`large-status ${
                 isHealthy ? "green" : "red"
@@ -426,55 +298,26 @@ function App() {
             <span className="muted">
               Circuit Breaker
             </span>
-
           </div>
 
           <div className="metric-row">
-
-            <span>
-              Error Rate
-            </span>
-
-            <strong>
-              {formatPercent(errorRate)}
-            </strong>
-
+            <span>Error Rate</span>
+            <strong>14%</strong>
           </div>
 
           <div className="metric-row">
-
-            <span>
-              Configured Threshold
-            </span>
-
-            <strong>
-              {threshold}%
-            </strong>
-
+            <span>Configured Threshold</span>
+            <strong>2%</strong>
           </div>
 
           <div className="metric-row">
-
-            <span>
-              Pipeline Action
-            </span>
-
-            <strong>
-              {isHealthy ? "NONE" : "PAUSE"}
-            </strong>
-
+            <span>Pipeline Action</span>
+            <strong>PAUSE</strong>
           </div>
 
           <div className="metric-row">
-
-            <span>
-              Remediation
-            </span>
-
-            <strong>
-              {isHealthy ? "NONE" : "QUARANTINE"}
-            </strong>
-
+            <span>Remediation</span>
+            <strong>QUARANTINE</strong>
           </div>
 
         </div>
@@ -483,63 +326,34 @@ function App() {
         <div className="panel">
 
           <div className="panel-header">
-
             <div>
-              <span className="eyebrow">
-                GOLD LAYER
-              </span>
-
-              <h2>
-                Business Analytics
-              </h2>
+              <span className="eyebrow">GOLD LAYER</span>
+              <h2>Business Analytics</h2>
             </div>
 
-            <span className="panel-icon">
-              ₹
-            </span>
-
+            <span className="panel-icon">₹</span>
           </div>
 
           <div className="analytics-grid">
 
             <div>
-              <span>
-                TRANSACTIONS
-              </span>
-
-              <strong>
-                5
-              </strong>
+              <span>TRANSACTIONS</span>
+              <strong>5</strong>
             </div>
 
             <div>
-              <span>
-                QUANTITY
-              </span>
-
-              <strong>
-                10
-              </strong>
+              <span>QUANTITY</span>
+              <strong>10</strong>
             </div>
 
             <div>
-              <span>
-                TOTAL REVENUE
-              </span>
-
-              <strong>
-                ₹5,000
-              </strong>
+              <span>TOTAL REVENUE</span>
+              <strong>₹5,000</strong>
             </div>
 
             <div>
-              <span>
-                AVG ORDER VALUE
-              </span>
-
-              <strong>
-                ₹1,000
-              </strong>
+              <span>AVG ORDER VALUE</span>
+              <strong>₹1,000</strong>
             </div>
 
           </div>
@@ -551,25 +365,15 @@ function App() {
       {/* PRODUCT + INCIDENT */}
       <section className="main-grid">
 
-        {/* PRODUCT PERFORMANCE */}
         <div className="panel">
 
           <div className="panel-header">
-
             <div>
-              <span className="eyebrow">
-                ANALYTICS
-              </span>
-
-              <h2>
-                Product Performance
-              </h2>
+              <span className="eyebrow">ANALYTICS</span>
+              <h2>Product Performance</h2>
             </div>
 
-            <span className="panel-icon">
-              ★
-            </span>
-
+            <span className="panel-icon">★</span>
           </div>
 
           <div className="product-highlight">
@@ -579,98 +383,50 @@ function App() {
             </div>
 
             <div>
-
-              <span>
-                TOP PRODUCT
-              </span>
-
-              <strong>
-                PRD-001
-              </strong>
-
+              <span>TOP PRODUCT</span>
+              <strong>PRD-001</strong>
               <small>
                 Revenue: ₹5,000
               </small>
-
             </div>
 
           </div>
 
           <div className="metric-row">
-
-            <span>
-              Unique Products
-            </span>
-
-            <strong>
-              1
-            </strong>
-
+            <span>Unique Products</span>
+            <strong>1</strong>
           </div>
 
           <div className="metric-row">
-
-            <span>
-              Avg. Quantity / Transaction
-            </span>
-
-            <strong>
-              2.0
-            </strong>
-
+            <span>Avg. Quantity / Transaction</span>
+            <strong>2.0</strong>
           </div>
 
         </div>
 
-        {/* INCIDENT MANAGEMENT */}
         <div className="panel">
 
           <div className="panel-header">
-
             <div>
-              <span className="eyebrow">
-                INCIDENT MANAGEMENT
-              </span>
-
-              <h2>
-                Recent Incidents
-              </h2>
+              <span className="eyebrow">INCIDENT MANAGEMENT</span>
+              <h2>Recent Incidents</h2>
             </div>
 
-            <span className="panel-icon">
-              ⚠
-            </span>
-
+            <span className="panel-icon">⚠</span>
           </div>
 
           <div className="incident-list">
 
             <div className="incident">
-              <span>11:10 AM</span>
+              <span>08:59</span>
               <b>OPEN</b>
-              <span>28%</span>
+              <span>14%</span>
               <span>PAUSE</span>
               <strong>QUARANTINE</strong>
             </div>
 
             <div className="incident">
-              <span>10:58 AM</span>
-              <b>OPEN</b>
-              <span>28%</span>
-              <span>PAUSE</span>
-              <strong>QUARANTINE</strong>
-            </div>
-
-            <div className="incident">
-              <span>05:30 PM</span>
-              <b>OPEN</b>
-              <span>15%</span>
-              <span>PAUSE</span>
-              <strong>QUARANTINE</strong>
-            </div>
-
-            <div className="incident">
-              <span>05:07 PM</span>
+              <span>08:57</span>
               <b>OPEN</b>
               <span>3%</span>
               <span>PAUSE</span>
@@ -678,7 +434,7 @@ function App() {
             </div>
 
             <div className="incident">
-              <span>04:18 PM</span>
+              <span>08:55</span>
               <b>OPEN</b>
               <span>3%</span>
               <span>PAUSE</span>
@@ -697,19 +453,11 @@ function App() {
         <div className="section-heading">
 
           <div>
-
-            <span className="eyebrow">
-              SYSTEM ARCHITECTURE
-            </span>
-
-            <h2>
-              IceStream Data Pipeline
-            </h2>
-
+            <span className="eyebrow">SYSTEM ARCHITECTURE</span>
+            <h2>IceStream Data Pipeline</h2>
             <p>
               End-to-end real-time lakehouse architecture
             </p>
-
           </div>
 
           <span className="architecture-badge">
@@ -728,16 +476,9 @@ function App() {
             nodesConnectable={false}
             zoomOnScroll={true}
           >
-
             <Controls />
-
             <MiniMap />
-
-            <Background
-              gap={20}
-              size={1}
-            />
-
+            <Background gap={20} size={1} />
           </ReactFlow>
 
         </div>
@@ -748,31 +489,16 @@ function App() {
       <footer>
 
         <div>
-
-          <strong>
-            IceStream
-          </strong>
-
+          <strong>IceStream</strong>
           <span>
             Real-Time Lakehouse Observability Platform
           </span>
-
         </div>
 
         <div className="footer-tags">
-
-          <span>
-            DATA QUALITY
-          </span>
-
-          <span>
-            ANALYTICS
-          </span>
-
-          <span>
-            AUTOMATED PROTECTION
-          </span>
-
+          <span>DATA QUALITY</span>
+          <span>ANALYTICS</span>
+          <span>AUTOMATED PROTECTION</span>
         </div>
 
       </footer>
