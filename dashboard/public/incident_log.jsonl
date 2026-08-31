@@ -27,3 +27,5 @@
 {"timestamp": "2026-08-29T17:30:32.835870", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.15, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
 {"timestamp": "2026-08-30T10:58:24.266277", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.275, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
 {"timestamp": "2026-08-30T11:10:11.068932", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.275, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-08-31T17:59:32.778562", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.2, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-08-31T18:06:10.380600", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.2, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}

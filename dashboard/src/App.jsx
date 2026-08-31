@@ -1,105 +1,277 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ReactFlow,
   MiniMap,
   Controls,
   Background,
+  Position,
 } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
 import "./App.css";
 
+const REFRESH_INTERVAL = 3000;
+const THRESHOLD = 2;
+
+const DATA_FILES = {
+  metrics: "/data/pipeline_metrics.jsonl",
+  summary: "/data/daily_summary.json",
+  products: "/data/product_performance.jsonl",
+  status: "/pipeline_status.json",
+  incidents: "/incident_log.jsonl",
+};
+
 const normalStyle = {
-  width: 190,
-  padding: 18,
-  border: "2px solid #16a34a",
-  borderRadius: 12,
-  background: "#f0fdf4",
+  width: 185,
+  padding: 16,
+  border: "1px solid rgba(34, 197, 94, 0.45)",
+  borderRadius: 14,
+  background: "#0d1f18",
+  color: "#e5e7eb",
   textAlign: "center",
-  fontWeight: "600",
+  fontWeight: 600,
+  boxShadow: "0 0 0 1px rgba(34,197,94,0.05)",
 };
 
 const warningStyle = {
-  width: 190,
-  padding: 18,
-  border: "2px solid #dc2626",
-  borderRadius: 12,
-  background: "#fef2f2",
+  width: 185,
+  padding: 16,
+  border: "1px solid rgba(239, 68, 68, 0.65)",
+  borderRadius: 14,
+  background: "#251113",
+  color: "#fef2f2",
   textAlign: "center",
-  fontWeight: "600",
+  fontWeight: 600,
+  boxShadow: "0 0 25px rgba(239,68,68,0.08)",
 };
 
-function App() {
-  const [pipelineStatus, setPipelineStatus] = useState("OPEN");
+async function fetchText(url) {
+  const response = await fetch(`${url}?t=${Date.now()}`);
 
-  /*
-   * Current IceStream snapshot
-   *
-   * 20 total records
-   * 16 valid records
-   * 4 invalid records
-   *
-   * Error rate = 4 / 20 * 100 = 20%
-   */
-  const [metrics, setMetrics] = useState({
-    totalRecords: 20,
-    validRecords: 16,
-    invalidRecords: 4,
+  if (!response.ok) {
+    throw new Error(`Unable to load ${url}`);
+  }
+
+  return response.text();
+}
+
+async function fetchJson(url) {
+  const response = await fetch(`${url}?t=${Date.now()}`);
+
+  if (!response.ok) {
+    throw new Error(`Unable to load ${url}`);
+  }
+
+  return response.json();
+}
+
+function parseJsonLines(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-IN").format(Number(value || 0));
+}
+
+function formatCurrency(value) {
+  return `₹${new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0))}`;
+}
+
+function formatPercent(value) {
+  return `${Number(value || 0).toFixed(1)}%`;
+}
+
+function formatTime(timestamp) {
+  if (!timestamp) return "--";
+
+  const date = new Date(timestamp);
+
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
   });
+}
 
-  const threshold = 2;
+function formatDateTime(timestamp) {
+  if (!timestamp) return "--";
 
-  const errorRate =
-    metrics.totalRecords > 0
-      ? (metrics.invalidRecords / metrics.totalRecords) * 100
-      : 0;
+  const date = new Date(timestamp);
 
-  const isHealthy = pipelineStatus === "HEALTHY";
-  const isOpen = pipelineStatus === "OPEN";
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
 
-  const formatPercent = (value) => `${value.toFixed(1)}%`;
+  return date.toLocaleString([], {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
-  const togglePipeline = () => {
-    if (isOpen) {
-      setPipelineStatus("HEALTHY");
+function App() {
+  const [metricsHistory, setMetricsHistory] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [pipelineStatus, setPipelineStatus] = useState(null);
+  const [incidents, setIncidents] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [connectionError, setConnectionError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
-      setMetrics({
-        totalRecords: 100,
-        validRecords: 100,
-        invalidRecords: 0,
-      });
-    } else {
-      setPipelineStatus("OPEN");
+  const loadDashboardData = async () => {
+    setRefreshing(true);
 
-      setMetrics({
-        totalRecords: 20,
-        validRecords: 16,
-        invalidRecords: 4,
-      });
+    try {
+      const [
+        metricsText,
+        summaryData,
+        productsText,
+        statusData,
+        incidentsText,
+      ] = await Promise.all([
+        fetchText(DATA_FILES.metrics),
+        fetchJson(DATA_FILES.summary),
+        fetchText(DATA_FILES.products),
+        fetchJson(DATA_FILES.status),
+        fetchText(DATA_FILES.incidents),
+      ]);
+
+      const metrics = parseJsonLines(metricsText);
+      const productData = parseJsonLines(productsText);
+      const incidentData = parseJsonLines(incidentsText);
+
+      setMetricsHistory(metrics);
+      setSummary(summaryData);
+      setProducts(productData);
+      setPipelineStatus(statusData);
+      setIncidents(incidentData);
+      setLastUpdated(new Date());
+      setConnectionError("");
+    } catch (error) {
+      console.error("Dashboard refresh failed:", error);
+      setConnectionError(
+        "Unable to refresh pipeline data. Showing the last available snapshot."
+      );
+    } finally {
+      setRefreshing(false);
     }
   };
 
-  const simulateAnomaly = () => {
-    setPipelineStatus("OPEN");
+  useEffect(() => {
+    loadDashboardData();
 
-    setMetrics({
-      totalRecords: 20,
-      validRecords: 16,
-      invalidRecords: 4,
-    });
-  };
+    const interval = setInterval(
+      loadDashboardData,
+      REFRESH_INTERVAL
+    );
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const latestMetrics = useMemo(() => {
+    if (!metricsHistory.length) {
+      return {
+        total_records: 0,
+        valid_records: 0,
+        invalid_records: 0,
+        error_rate: 0,
+        error_breakdown: {},
+      };
+    }
+
+    return metricsHistory[metricsHistory.length - 1];
+  }, [metricsHistory]);
+
+  const processed = Number(
+    latestMetrics.total_records || 0
+  );
+
+  const valid = Number(
+    latestMetrics.valid_records || 0
+  );
+
+  const invalid = Number(
+    latestMetrics.invalid_records || 0
+  );
+
+  const errorRate =
+    processed > 0
+      ? (invalid / processed) * 100
+      : Number(latestMetrics.error_rate || 0);
+
+  const isHealthy =
+    errorRate <= THRESHOLD &&
+    pipelineStatus?.status !== "OPEN";
+
+  const circuitOpen =
+    !isHealthy ||
+    pipelineStatus?.status === "OPEN";
+
+  const topProducts = useMemo(() => {
+    return [...products]
+      .sort(
+        (a, b) =>
+          Number(b.total_revenue || 0) -
+          Number(a.total_revenue || 0)
+      )
+      .slice(0, 5);
+  }, [products]);
+
+  const latestIncidents = useMemo(() => {
+    return [...incidents]
+      .reverse()
+      .slice(0, 5);
+  }, [incidents]);
+
+  const healthLabel = isHealthy
+    ? "HEALTHY"
+    : "OPEN";
+
+  const processingLabel = isHealthy
+    ? "ACTIVE"
+    : "PAUSED";
+
+  const pipelineAction = isHealthy
+    ? "NONE"
+    : "PAUSE";
+
+  const remediation = isHealthy
+    ? "NONE"
+    : "QUARANTINE";
 
   const nodes = [
     {
-      id: "kafka",
-      position: { x: 50, y: 220 },
+      id: "generator",
+      position: { x: 0, y: 180 },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       data: {
         label: (
           <div>
-            <div>📥 INGEST</div>
-            <small>Apache Kafka</small>
+            <div>⚡ GENERATE</div>
+            <small>Transaction Generator</small>
             <br />
-            <small>Streaming Input</small>
+            <small>Streaming Data</small>
           </div>
         ),
       },
@@ -107,49 +279,149 @@ function App() {
     },
 
     {
-      id: "flink",
-      position: { x: 350, y: 220 },
+      id: "kafka",
+      position: { x: 235, y: 180 },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       data: {
         label: (
           <div>
-            <div>{isHealthy ? "⚙️ PROCESS" : "🚨 PROCESS"}</div>
-            <small>Apache Flink</small>
+            <div>📥 INGEST</div>
+            <small>Apache Kafka</small>
             <br />
-            <small>
-              {isHealthy ? "Processing" : "QUARANTINED"}
-            </small>
+            <small>Event Stream</small>
           </div>
         ),
       },
-      style: isHealthy ? normalStyle : warningStyle,
+      style: normalStyle,
     },
 
     {
-      id: "iceberg",
-      position: { x: 650, y: 220 },
+      id: "quality",
+      position: { x: 470, y: 180 },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       data: {
         label: (
           <div>
-            <div>🗄️ SERVE</div>
-            <small>Apache Iceberg</small>
+            <div>
+              {circuitOpen ? "🚨 QUALITY" : "✓ QUALITY"}
+            </div>
+            <small>Validation</small>
             <br />
             <small>
-              {isHealthy ? "Lakehouse" : "Pipeline Paused"}
+              {circuitOpen
+                ? "Errors Detected"
+                : "Data Validated"}
             </small>
           </div>
         ),
       },
-      style: isHealthy ? normalStyle : warningStyle,
+      style: circuitOpen
+        ? warningStyle
+        : normalStyle,
+    },
+
+    {
+      id: "bronze",
+      position: { x: 705, y: 180 },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      data: {
+        label: (
+          <div>
+            <div>🥉 BRONZE</div>
+            <small>Raw Storage</small>
+            <br />
+            <small>JSONL</small>
+          </div>
+        ),
+      },
+      style: normalStyle,
+    },
+
+    {
+      id: "silver",
+      position: { x: 940, y: 180 },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      data: {
+        label: (
+          <div>
+            <div>🥈 SILVER</div>
+            <small>Cleaned Data</small>
+            <br />
+            <small>Validated Records</small>
+          </div>
+        ),
+      },
+      style: normalStyle,
+    },
+
+    {
+      id: "gold",
+      position: { x: 1175, y: 180 },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      data: {
+        label: (
+          <div>
+            <div>🥇 GOLD</div>
+            <small>Business Analytics</small>
+            <br />
+            <small>Aggregated Data</small>
+          </div>
+        ),
+      },
+      style: normalStyle,
+    },
+
+    {
+      id: "observability",
+      position: { x: 1410, y: 180 },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      data: {
+        label: (
+          <div>
+            <div>📊 OBSERVE</div>
+            <small>Metrics Engine</small>
+            <br />
+            <small>Health Monitoring</small>
+          </div>
+        ),
+      },
+      style: normalStyle,
+    },
+
+    {
+      id: "dashboard",
+      position: { x: 1645, y: 180 },
+      targetPosition: Position.Left,
+      data: {
+        label: (
+          <div>
+            <div>🖥 DASHBOARD</div>
+            <small>IceStream UI</small>
+            <br />
+            <small>Live Monitoring</small>
+          </div>
+        ),
+      },
+      style: normalStyle,
     },
 
     {
       id: "quarantine",
-      position: { x: 350, y: 450 },
+      position: { x: 470, y: 430 },
+      targetPosition: Position.Top,
       data: {
         label: (
           <div>
             <div>🛑 QUARANTINE</div>
             <small>Bad Data / DLQ</small>
+            <br />
+            <small>Automated Remediation</small>
           </div>
         ),
       },
@@ -159,24 +431,59 @@ function App() {
 
   const edges = [
     {
-      id: "kafka-flink",
+      id: "generator-kafka",
+      source: "generator",
+      target: "kafka",
+      animated: true,
+    },
+
+    {
+      id: "kafka-quality",
       source: "kafka",
-      target: "flink",
+      target: "quality",
+      animated: true,
+    },
+
+    {
+      id: "quality-bronze",
+      source: "quality",
+      target: "bronze",
       animated: isHealthy,
     },
 
     {
-      id: "flink-iceberg",
-      source: "flink",
-      target: "iceberg",
+      id: "bronze-silver",
+      source: "bronze",
+      target: "silver",
       animated: isHealthy,
     },
 
     {
-      id: "flink-quarantine",
-      source: "flink",
+      id: "silver-gold",
+      source: "silver",
+      target: "gold",
+      animated: isHealthy,
+    },
+
+    {
+      id: "gold-observability",
+      source: "gold",
+      target: "observability",
+      animated: true,
+    },
+
+    {
+      id: "observability-dashboard",
+      source: "observability",
+      target: "dashboard",
+      animated: true,
+    },
+
+    {
+      id: "quality-quarantine",
+      source: "quality",
       target: "quarantine",
-      animated: !isHealthy,
+      animated: circuitOpen,
     },
   ];
 
@@ -186,87 +493,167 @@ function App() {
       {/* HEADER */}
       <header className="dashboard-header">
 
-        <div>
-          <div className="brand">
-            <span className="brand-mark">IS</span>
+        <div className="brand">
 
-            <div>
-              <h1>IceStream</h1>
-              <p>Real-Time Lakehouse Observability</p>
-            </div>
+          <div className="brand-mark">
+            IS
           </div>
+
+          <div>
+            <h1>IceStream</h1>
+            <p>
+              Real-Time Lakehouse Observability
+            </p>
+          </div>
+
         </div>
 
-        <div
-          className={`status-pill ${
-            isHealthy ? "healthy" : "danger"
-          }`}
-        >
-          <span className="status-dot"></span>
-          {pipelineStatus}
+        <div className="header-right">
+
+          <div className="live-indicator">
+            <span className="live-dot"></span>
+            LIVE
+          </div>
+
+          <div
+            className={`status-pill ${
+              isHealthy
+                ? "healthy"
+                : "danger"
+            }`}
+          >
+            <span className="status-dot"></span>
+            {healthLabel}
+          </div>
+
         </div>
 
       </header>
 
-      {/* TOP INFORMATION */}
+      {/* CONNECTION STATUS */}
+      <div className="connection-bar">
+
+        <div>
+
+          <span
+            className={
+              connectionError
+                ? "connection-dot offline"
+                : "connection-dot"
+            }
+          />
+
+          {connectionError
+            ? connectionError
+            : "Pipeline data connected"}
+
+        </div>
+
+        <div>
+          Last refresh:{" "}
+          <strong>
+            {lastUpdated
+              ? lastUpdated.toLocaleTimeString()
+              : "--"}
+          </strong>
+
+          <span className="refresh-state">
+            {refreshing ? " • refreshing..." : ""}
+          </span>
+        </div>
+
+      </div>
+
+      {/* TOP SUMMARY */}
       <section className="top-grid">
 
         <div className="info-card">
-          <span className="card-label">PIPELINE</span>
-          <strong>IceStream</strong>
+
+          <span className="card-label">
+            PIPELINE
+          </span>
+
+          <strong>
+            IceStream
+          </strong>
+
           <span className="muted">
             Real-time data platform
           </span>
+
         </div>
 
         <div className="info-card">
-          <span className="card-label">PROCESSING</span>
-          <strong>{isHealthy ? "ACTIVE" : "PAUSED"}</strong>
+
+          <span className="card-label">
+            PROCESSING
+          </span>
+
+          <strong>
+            {processingLabel}
+          </strong>
+
           <span className="muted">
             Automated protection
           </span>
+
         </div>
 
         <div className="info-card">
-          <span className="card-label">DATA QUALITY</span>
-          <strong>
-            {isHealthy ? "GOOD" : formatPercent(errorRate)}
-          </strong>
-          <span className="muted">
-            Error rate monitoring
+
+          <span className="card-label">
+            DATA QUALITY
           </span>
+
+          <strong>
+            {formatPercent(errorRate)}
+          </strong>
+
+          <span className="muted">
+            Threshold: {THRESHOLD}%
+          </span>
+
         </div>
 
-        <button
-          className={`simulation-button ${
-            isHealthy ? "simulate" : "restore"
-          }`}
-          onClick={isHealthy ? simulateAnomaly : togglePipeline}
-        >
-          {isHealthy
-            ? "⚠ Simulate Data Anomaly"
-            : "✓ Restore Pipeline"}
-        </button>
+        <div className="info-card">
+
+          <span className="card-label">
+            SNAPSHOTS
+          </span>
+
+          <strong>
+            {formatNumber(metricsHistory.length)}
+          </strong>
+
+          <span className="muted">
+            Recorded metric snapshots
+          </span>
+
+        </div>
 
       </section>
 
       {/* ALERT */}
-      {!isHealthy && (
+      {circuitOpen && (
         <section className="alert-banner">
 
-          <div className="alert-icon">!</div>
+          <div className="alert-icon">
+            !
+          </div>
 
-          <div>
+          <div className="alert-content">
+
             <strong>
               Pipeline protection activated
             </strong>
 
             <p>
               Data quality error rate exceeded the
-              configured 2% threshold. Pipeline processing
-              has been paused and bad records have been
-              quarantined.
+              configured {THRESHOLD}% threshold.
+              Pipeline processing has been paused
+              and bad records have been quarantined.
             </p>
+
           </div>
 
           <div className="alert-action">
@@ -276,32 +663,43 @@ function App() {
         </section>
       )}
 
-      {/* KPI SECTION */}
+      {/* PIPELINE HEALTH */}
       <section className="section">
 
         <div className="section-heading">
 
           <div>
+
             <span className="eyebrow">
               OBSERVABILITY
             </span>
 
-            <h2>Pipeline Health</h2>
+            <h2>
+              Pipeline Health
+            </h2>
 
             <p>
               Latest pipeline snapshot
             </p>
+
           </div>
 
-          <span className="live-badge">
-            ● LIVE
-          </span>
+          <div className="section-meta">
+            <span className="live-badge">
+              ● LIVE
+            </span>
+
+            <span className="timestamp">
+              {formatDateTime(
+                latestMetrics.timestamp
+              )}
+            </span>
+          </div>
 
         </div>
 
         <div className="kpi-grid">
 
-          {/* TOTAL */}
           <div className="kpi-card">
 
             <span className="kpi-icon">
@@ -313,7 +711,7 @@ function App() {
             </span>
 
             <strong>
-              {metrics.totalRecords}
+              {formatNumber(processed)}
             </strong>
 
             <small>
@@ -322,8 +720,7 @@ function App() {
 
           </div>
 
-          {/* VALID */}
-          <div className="kpi-card">
+          <div className="kpi-card success-card">
 
             <span className="kpi-icon">
               ✓
@@ -334,7 +731,7 @@ function App() {
             </span>
 
             <strong>
-              {metrics.validRecords}
+              {formatNumber(valid)}
             </strong>
 
             <small>
@@ -343,7 +740,6 @@ function App() {
 
           </div>
 
-          {/* INVALID */}
           <div className="kpi-card danger-card">
 
             <span className="kpi-icon">
@@ -355,7 +751,7 @@ function App() {
             </span>
 
             <strong>
-              {metrics.invalidRecords}
+              {formatNumber(invalid)}
             </strong>
 
             <small>
@@ -364,7 +760,6 @@ function App() {
 
           </div>
 
-          {/* ERROR RATE */}
           <div className="kpi-card danger-card">
 
             <span className="kpi-icon">
@@ -380,7 +775,7 @@ function App() {
             </strong>
 
             <small>
-              Threshold: {threshold}%
+              Threshold: {THRESHOLD}%
             </small>
 
           </div>
@@ -389,10 +784,107 @@ function App() {
 
       </section>
 
-      {/* MAIN GRID */}
+      {/* TREND + PROTECTION */}
       <section className="main-grid">
 
-        {/* PIPELINE PROTECTION */}
+        {/* TREND */}
+        <div className="panel trend-panel">
+
+          <div className="panel-header">
+
+            <div>
+              <span className="eyebrow">
+                QUALITY TREND
+              </span>
+
+              <h2>
+                Error Rate History
+              </h2>
+
+              <p>
+                Recent pipeline quality snapshots
+              </p>
+            </div>
+
+            <span className="panel-icon">
+              ↗
+            </span>
+
+          </div>
+
+          <div className="trend-chart">
+
+            {metricsHistory.length === 0 ? (
+              <div className="empty-state">
+                No metric history available.
+              </div>
+            ) : (
+              metricsHistory
+                .slice(-12)
+                .map((metric, index) => {
+
+                  const rate =
+                    Number(
+                      metric.error_rate || 0
+                    );
+
+                  const height =
+                    Math.min(
+                      Math.max(rate, 2),
+                      100
+                    );
+
+                  return (
+                    <div
+                      className="trend-column"
+                      key={`${metric.timestamp}-${index}`}
+                    >
+
+                      <div className="trend-value">
+                        {rate.toFixed(1)}%
+                      </div>
+
+                      <div className="trend-bar-wrapper">
+
+                        <div
+                          className={`trend-bar ${
+                            rate > THRESHOLD
+                              ? "bad"
+                              : "good"
+                          }`}
+                          style={{
+                            height: `${height}%`,
+                          }}
+                        />
+
+                      </div>
+
+                      <small>
+                        {formatTime(
+                          metric.timestamp
+                        )}
+                      </small>
+
+                    </div>
+                  );
+                })
+            )}
+
+          </div>
+
+          <div className="threshold-line">
+            <span>
+              Threshold
+            </span>
+
+            <strong>
+              {THRESHOLD}%
+            </strong>
+          </div>
+
+        </div>
+
+        {/* PROTECTION */}
         <div className="panel">
 
           <div className="panel-header">
@@ -405,6 +897,10 @@ function App() {
               <h2>
                 Pipeline Protection
               </h2>
+
+              <p>
+                Automated circuit breaker
+              </p>
             </div>
 
             <span className="panel-icon">
@@ -417,10 +913,14 @@ function App() {
 
             <span
               className={`large-status ${
-                isHealthy ? "green" : "red"
+                circuitOpen
+                  ? "red"
+                  : "green"
               }`}
             >
-              {isHealthy ? "CLOSED" : "OPEN"}
+              {circuitOpen
+                ? "OPEN"
+                : "CLOSED"}
             </span>
 
             <span className="muted">
@@ -430,7 +930,6 @@ function App() {
           </div>
 
           <div className="metric-row">
-
             <span>
               Error Rate
             </span>
@@ -438,48 +937,45 @@ function App() {
             <strong>
               {formatPercent(errorRate)}
             </strong>
-
           </div>
 
           <div className="metric-row">
-
             <span>
               Configured Threshold
             </span>
 
             <strong>
-              {threshold}%
+              {THRESHOLD}%
             </strong>
-
           </div>
 
           <div className="metric-row">
-
             <span>
               Pipeline Action
             </span>
 
             <strong>
-              {isHealthy ? "NONE" : "PAUSE"}
+              {pipelineAction}
             </strong>
-
           </div>
 
           <div className="metric-row">
-
             <span>
               Remediation
             </span>
 
             <strong>
-              {isHealthy ? "NONE" : "QUARANTINE"}
+              {remediation}
             </strong>
-
           </div>
 
         </div>
 
-        {/* BUSINESS ANALYTICS */}
+      </section>
+
+      {/* GOLD LAYER */}
+      <section className="main-grid">
+
         <div className="panel">
 
           <div className="panel-header">
@@ -492,6 +988,10 @@ function App() {
               <h2>
                 Business Analytics
               </h2>
+
+              <p>
+                Curated lakehouse business metrics
+              </p>
             </div>
 
             <span className="panel-icon">
@@ -508,7 +1008,9 @@ function App() {
               </span>
 
               <strong>
-                5
+                {formatNumber(
+                  summary?.total_transactions
+                )}
               </strong>
             </div>
 
@@ -518,7 +1020,9 @@ function App() {
               </span>
 
               <strong>
-                10
+                {formatNumber(
+                  summary?.total_quantity
+                )}
               </strong>
             </div>
 
@@ -528,7 +1032,9 @@ function App() {
               </span>
 
               <strong>
-                ₹5,000
+                {formatCurrency(
+                  summary?.total_revenue
+                )}
               </strong>
             </div>
 
@@ -538,7 +1044,9 @@ function App() {
               </span>
 
               <strong>
-                ₹1,000
+                {formatCurrency(
+                  summary?.average_order_value
+                )}
               </strong>
             </div>
 
@@ -546,12 +1054,82 @@ function App() {
 
         </div>
 
+        {/* DATA QUALITY BREAKDOWN */}
+        <div className="panel">
+
+          <div className="panel-header">
+
+            <div>
+              <span className="eyebrow">
+                DATA QUALITY
+              </span>
+
+              <h2>
+                Error Breakdown
+              </h2>
+
+              <p>
+                Latest validation failures
+              </p>
+            </div>
+
+            <span className="panel-icon">
+              !
+            </span>
+
+          </div>
+
+          <div className="error-list">
+
+            {Object.entries(
+              latestMetrics.error_breakdown || {}
+            ).length === 0 ? (
+              <div className="quality-good">
+                <span>✓</span>
+                <div>
+                  <strong>
+                    No validation errors
+                  </strong>
+
+                  <small>
+                    Latest snapshot passed quality checks.
+                  </small>
+                </div>
+              </div>
+            ) : (
+              Object.entries(
+                latestMetrics.error_breakdown || {}
+              )
+                .sort((a, b) => b[1] - a[1])
+                .map(([name, count]) => (
+                  <div
+                    className="error-item"
+                    key={name}
+                  >
+
+                    <div className="error-name">
+                      <span className="error-dot"></span>
+                      {name}
+                    </div>
+
+                    <strong>
+                      {count}
+                    </strong>
+
+                  </div>
+                ))
+            )}
+
+          </div>
+
+        </div>
+
       </section>
 
-      {/* PRODUCT + INCIDENT */}
+      {/* PRODUCT + INCIDENTS */}
       <section className="main-grid">
 
-        {/* PRODUCT PERFORMANCE */}
+        {/* PRODUCTS */}
         <div className="panel">
 
           <div className="panel-header">
@@ -564,6 +1142,10 @@ function App() {
               <h2>
                 Product Performance
               </h2>
+
+              <p>
+                Top products by revenue
+              </p>
             </div>
 
             <span className="panel-icon">
@@ -572,57 +1154,88 @@ function App() {
 
           </div>
 
-          <div className="product-highlight">
+          <div className="product-table">
 
-            <div className="product-rank">
-              #1
+            <div className="product-table-header">
+              <span>RANK</span>
+              <span>PRODUCT</span>
+              <span>REVENUE</span>
+              <span>QTY</span>
             </div>
 
-            <div>
+            {topProducts.length === 0 ? (
+              <div className="empty-state">
+                No product data available.
+              </div>
+            ) : (
+              topProducts.map(
+                (product, index) => (
+                  <div
+                    className="product-row"
+                    key={product.product_id}
+                  >
 
-              <span>
-                TOP PRODUCT
-              </span>
+                    <span className="rank">
+                      #{index + 1}
+                    </span>
 
-              <strong>
-                PRD-001
-              </strong>
+                    <strong>
+                      {product.product_id}
+                    </strong>
 
-              <small>
-                Revenue: ₹5,000
-              </small>
+                    <span>
+                      {formatCurrency(
+                        product.total_revenue
+                      )}
+                    </span>
 
-            </div>
+                    <span>
+                      {formatNumber(
+                        product.total_quantity
+                      )}
+                    </span>
+
+                  </div>
+                )
+              )
+            )}
 
           </div>
 
-          <div className="metric-row">
+          <div className="product-footer">
 
             <span>
               Unique Products
             </span>
 
             <strong>
-              1
+              {formatNumber(
+                summary?.unique_products
+              )}
             </strong>
-
-          </div>
-
-          <div className="metric-row">
 
             <span>
               Avg. Quantity / Transaction
             </span>
 
             <strong>
-              2.0
+              {summary?.total_transactions
+                ? (
+                    Number(
+                      summary.total_quantity
+                    ) /
+                    Number(
+                      summary.total_transactions
+                    )
+                  ).toFixed(1)
+                : "0.0"}
             </strong>
 
           </div>
 
         </div>
 
-        {/* INCIDENT MANAGEMENT */}
+        {/* INCIDENTS */}
         <div className="panel">
 
           <div className="panel-header">
@@ -635,6 +1248,10 @@ function App() {
               <h2>
                 Recent Incidents
               </h2>
+
+              <p>
+                Pipeline protection events
+              </p>
             </div>
 
             <span className="panel-icon">
@@ -645,45 +1262,69 @@ function App() {
 
           <div className="incident-list">
 
-            <div className="incident">
-              <span>11:10 AM</span>
-              <b>OPEN</b>
-              <span>28%</span>
-              <span>PAUSE</span>
-              <strong>QUARANTINE</strong>
-            </div>
+            {latestIncidents.length === 0 ? (
+              <div className="quality-good">
+                <span>✓</span>
 
-            <div className="incident">
-              <span>10:58 AM</span>
-              <b>OPEN</b>
-              <span>28%</span>
-              <span>PAUSE</span>
-              <strong>QUARANTINE</strong>
-            </div>
+                <div>
+                  <strong>
+                    No recent incidents
+                  </strong>
 
-            <div className="incident">
-              <span>05:30 PM</span>
-              <b>OPEN</b>
-              <span>15%</span>
-              <span>PAUSE</span>
-              <strong>QUARANTINE</strong>
-            </div>
+                  <small>
+                    Pipeline operating normally.
+                  </small>
+                </div>
+              </div>
+            ) : (
+              latestIncidents.map(
+                (incident, index) => {
 
-            <div className="incident">
-              <span>05:07 PM</span>
-              <b>OPEN</b>
-              <span>3%</span>
-              <span>PAUSE</span>
-              <strong>QUARANTINE</strong>
-            </div>
+                  const rate =
+                    incident.error_rate ??
+                    incident.errorRate ??
+                    0;
 
-            <div className="incident">
-              <span>04:18 PM</span>
-              <b>OPEN</b>
-              <span>3%</span>
-              <span>PAUSE</span>
-              <strong>QUARANTINE</strong>
-            </div>
+                  const time =
+                    incident.timestamp ||
+                    incident.time ||
+                    incident.created_at;
+
+                  return (
+                    <div
+                      className="incident"
+                      key={`${time}-${index}`}
+                    >
+
+                      <span className="incident-time">
+                        {formatTime(time)}
+                      </span>
+
+                      <b className="incident-open">
+                        {incident.status ||
+                          "OPEN"}
+                      </b>
+
+                      <span>
+                        {formatPercent(rate)}
+                      </span>
+
+                      <span>
+                        {incident.pipeline_action ||
+                          incident.action ||
+                          "PAUSE"}
+                      </span>
+
+                      <strong>
+                        {incident.remediation ||
+                          "QUARANTINE"}
+                      </strong>
+
+                    </div>
+                  );
+                }
+              )
+            )}
 
           </div>
 
@@ -712,9 +1353,9 @@ function App() {
 
           </div>
 
-          <span className="architecture-badge">
-            8 STAGES
-          </span>
+          <div className="architecture-badge">
+            9 STAGES
+          </div>
 
         </div>
 
@@ -724,9 +1365,15 @@ function App() {
             nodes={nodes}
             edges={edges}
             fitView
+            fitViewOptions={{
+              padding: 0.12,
+            }}
             nodesDraggable={false}
             nodesConnectable={false}
-            zoomOnScroll={true}
+            zoomOnScroll
+            panOnScroll
+            minZoom={0.25}
+            maxZoom={1.5}
           >
 
             <Controls />
@@ -734,7 +1381,7 @@ function App() {
             <MiniMap />
 
             <Background
-              gap={20}
+              gap={24}
               size={1}
             />
 
@@ -747,7 +1394,7 @@ function App() {
       {/* FOOTER */}
       <footer>
 
-        <div>
+        <div className="footer-brand">
 
           <strong>
             IceStream
@@ -763,6 +1410,10 @@ function App() {
 
           <span>
             DATA QUALITY
+          </span>
+
+          <span>
+            LAKEHOUSE
           </span>
 
           <span>
