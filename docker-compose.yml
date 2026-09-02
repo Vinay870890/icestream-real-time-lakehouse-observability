@@ -1,6 +1,8 @@
-version: "3.8"
-
 services:
+
+  # =========================
+  # KAFKA
+  # =========================
   kafka:
     image: apache/kafka:3.7.0
     container_name: icestream-kafka
@@ -10,10 +12,77 @@ services:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+  # =========================
+  # MINIO - OBJECT STORAGE
+  # =========================
+  minio:
+    image: minio/minio:latest
+    container_name: icestream-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: icestreamadmin
+    volumes:
+      - minio_data:/data
+
+  # =========================
+  # ICEBERG REST CATALOG
+  # =========================
+  iceberg-rest:
+    image: apache/iceberg-rest-fixture:latest
+    container_name: icestream-iceberg-rest
+    ports:
+      - "8181:8181"
+    depends_on:
+      - minio
+    environment:
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: icestreamadmin
+      AWS_REGION: us-east-1
+
+  # =========================
+  # FLINK JOBMANAGER
+  # =========================
+  flink-jobmanager:
+    build:
+      context: ./docker/flink
+    container_name: icestream-flink-jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        rest.port: 8081
+
+  # =========================
+  # FLINK TASKMANAGER
+  # =========================
+  flink-taskmanager:
+    build:
+      context: ./docker/flink
+    container_name: icestream-flink-taskmanager
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+
+volumes:
+  minio_data:
+
