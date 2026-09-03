@@ -14,7 +14,7 @@ from kafka import KafkaProducer
 from generator import generate_batch
 from bad_data import corrupt_batch
 
-KAFKA_BROKER = "localhost:9092"
+KAFKA_BROKER = "localhost:29092"
 TOPIC = "transactions"
 
 
