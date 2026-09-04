@@ -31,3 +31,4 @@ frontend/dist/
 
 # Environment variables
 .env
+docker/flink/lib/*.jar

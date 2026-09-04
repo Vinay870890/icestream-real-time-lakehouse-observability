@@ -67,6 +67,7 @@ services:
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
         rest.port: 8081
+                        security.module.factory.classes: org.apache.flink.runtime.security.modules.JaasModuleFactory
 
   # =========================
   # FLINK TASKMANAGER
@@ -83,12 +84,7 @@ services:
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: 2
+        security.module.factory.classes: org.apache.flink.runtime.security.modules.JaasModuleFactory
 
 volumes:
   minio_data:
-
-
-
-
-
-
