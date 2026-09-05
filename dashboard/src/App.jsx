@@ -178,15 +178,71 @@ function App() {
   };
 
   useEffect(() => {
-    loadDashboardData();
+  loadDashboardData();
 
-    const interval = setInterval(
-      loadDashboardData,
-      REFRESH_INTERVAL
+  const protocol =
+    window.location.protocol === "https:"
+      ? "wss:"
+      : "ws:";
+
+  const wsUrl =
+    `${protocol}//${window.location.host}/ws/observability`;
+
+  const socket = new WebSocket(wsUrl);
+
+  socket.onopen = () => {
+    console.log("[WebSocket] Connected");
+    setConnectionError("");
+  };
+
+  socket.onmessage = (event) => {
+    try {
+      const message = JSON.parse(event.data);
+
+      if (message.type !== "observability_update") {
+        return;
+      }
+
+      const data = message.data;
+
+      setMetricsHistory(data.metrics || []);
+      setPipelineStatus(data.status || null);
+      setIncidents(data.incidents || []);
+      setLastUpdated(new Date());
+
+      setConnectionError("");
+
+      console.log(
+        "[WebSocket] Observability update received"
+      );
+    } catch (error) {
+      console.error(
+        "[WebSocket] Invalid message:",
+        error
+      );
+    }
+  };
+
+  socket.onerror = () => {
+    console.error(
+      "[WebSocket] Connection error"
     );
 
-    return () => clearInterval(interval);
-  }, []);
+    setConnectionError(
+      "WebSocket connection error"
+    );
+  };
+
+  socket.onclose = () => {
+    console.log(
+      "[WebSocket] Disconnected"
+    );
+  };
+
+  return () => {
+    socket.close();
+  };
+}, []);
 
   const latestMetrics = useMemo(() => {
     if (!metricsHistory.length) {

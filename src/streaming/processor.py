@@ -39,7 +39,7 @@ from storage.storage_manager import save_quarantine_record
 from observability.metrics import save_metrics
 
 
-KAFKA_BROKER = "localhost:9092"
+KAFKA_BROKER = "localhost:29092"
 TOPIC = "transactions"
 CONSUMER_TIMEOUT_MS = 10000
 

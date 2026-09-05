@@ -12,7 +12,8 @@
   "dependencies": {
     "@xyflow/react": "^12.11.5",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",
