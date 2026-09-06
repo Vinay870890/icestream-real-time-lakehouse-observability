@@ -1,129 +1,230 @@
 ﻿from pyflink.table import EnvironmentSettings, TableEnvironment
 
 
-def main():
-    # ============================================================
-    # FLINK TABLE ENVIRONMENT
-    # ============================================================
-    settings = EnvironmentSettings.in_streaming_mode()
-    table_env = TableEnvironment.create(settings)
+# ============================================================
+# FLINK STREAMING ENVIRONMENT
+# ============================================================
 
-    # ============================================================
-    # CHECKPOINTING
-    # IMPORTANT:
-    # Configure this on TableEnvironment because this is a
-    # Table API job.
-    # ============================================================
-    table_env.get_config().set(
-        "execution.checkpointing.interval",
-        "10s"
-    )
+settings = EnvironmentSettings.in_streaming_mode()
+t_env = TableEnvironment.create(settings)
 
-    table_env.get_config().set(
-        "execution.checkpointing.timeout",
-        "60s"
-    )
+# Checkpointing
+t_env.get_config().set(
+    "execution.checkpointing.interval",
+    "10s"
+)
 
-    # ============================================================
-    # ICEBERG REST CATALOG
-    # ============================================================
-    table_env.execute_sql("""
-        CREATE CATALOG iceberg_catalog WITH (
-            'type' = 'iceberg',
-            'catalog-type' = 'rest',
-            'uri' = 'http://iceberg-rest:8181',
-            'warehouse' = 's3://warehouse/',
-            'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
-            's3.endpoint' = 'http://minio:9000',
-            's3.access-key-id' = 'admin',
-            's3.secret-access-key' = 'icestreamadmin',
-            's3.path-style-access' = 'true'
+t_env.get_config().set(
+    "execution.checkpointing.timeout",
+    "60s"
+)
+
+
+# ============================================================
+# ICEBERG REST CATALOG
+# ============================================================
+
+t_env.execute_sql("""
+CREATE CATALOG iceberg_catalog WITH (
+    'type' = 'iceberg',
+    'catalog-type' = 'rest',
+    'uri' = 'http://iceberg-rest:8181',
+    'warehouse' = 's3://warehouse/',
+    'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
+    's3.endpoint' = 'http://minio:9000',
+    's3.path-style-access' = 'true',
+    's3.access-key-id' = 'admin',
+    's3.secret-access-key' = 'icestreamadmin',
+    'client.region' = 'us-east-1'
+)
+""")
+
+
+# ============================================================
+# ICEBERG NAMESPACE
+# ============================================================
+
+t_env.execute_sql("""
+CREATE DATABASE IF NOT EXISTS iceberg_catalog.icestream
+""")
+
+
+# ============================================================
+# MAIN ICEBERG TABLE
+# ============================================================
+
+t_env.execute_sql("""
+CREATE TABLE IF NOT EXISTS iceberg_catalog.icestream.transactions (
+    transaction_id STRING,
+    product_id STRING,
+    quantity INT,
+    price DOUBLE,
+    payment_method STRING,
+    `timestamp` TIMESTAMP_LTZ(6)
+)
+""")
+
+
+# ============================================================
+# DLQ / QUARANTINE ICEBERG TABLE
+# ============================================================
+
+t_env.execute_sql("""
+CREATE TABLE IF NOT EXISTS iceberg_catalog.icestream.transactions_dlq (
+    transaction_id STRING,
+    raw_record STRING,
+    validation_errors STRING,
+    quarantined_at TIMESTAMP_LTZ(6)
+)
+""")
+
+
+# ============================================================
+# KAFKA SOURCE
+# ============================================================
+
+t_env.execute_sql("""
+CREATE TABLE kafka_transactions (
+    transaction_id STRING,
+    product_id STRING,
+    quantity INT,
+    price DOUBLE,
+    payment_method STRING,
+    `timestamp` STRING
+) WITH (
+    'connector' = 'kafka',
+    'topic' = 'transactions',
+    'properties.bootstrap.servers' = 'kafka:9092',
+    'properties.group.id' = 'icestream-flink-single-job',
+    'scan.startup.mode' = 'earliest-offset',
+    'format' = 'json',
+    'json.ignore-parse-errors' = 'true'
+)
+""")
+
+
+# ============================================================
+# CLASSIFY VALID / INVALID RECORDS
+# ============================================================
+
+t_env.execute_sql("""
+CREATE TEMPORARY VIEW classified_transactions AS
+SELECT
+    transaction_id,
+    product_id,
+    quantity,
+    price,
+    payment_method,
+    `timestamp`,
+
+    CASE
+        WHEN transaction_id IS NULL
+            THEN 'transaction_id is null'
+
+        WHEN product_id IS NULL
+            THEN 'product_id is null'
+
+        WHEN quantity IS NULL OR quantity <= 0
+            THEN 'quantity must be greater than 0'
+
+        WHEN price IS NULL OR price < 0
+            THEN 'price must be greater than or equal to 0'
+
+        WHEN payment_method IS NULL
+            THEN 'payment_method is null'
+
+        WHEN `timestamp` IS NULL
+            THEN 'timestamp is null'
+
+        ELSE NULL
+    END AS validation_error
+
+FROM kafka_transactions
+""")
+
+
+# ============================================================
+# SINGLE FLINK JOB
+#
+# One Kafka source
+#       |
+#       +---- VALID ------> Iceberg transactions
+#       |
+#       +---- INVALID ----> Iceberg transactions_dlq
+#
+# StatementSet guarantees both INSERTs are submitted
+# as ONE Flink job.
+# ============================================================
+
+statement_set = t_env.create_statement_set()
+
+
+# ============================================================
+# VALID DATA → MAIN ICEBERG TABLE
+# ============================================================
+
+statement_set.add_insert_sql("""
+INSERT INTO iceberg_catalog.icestream.transactions
+SELECT
+    transaction_id,
+    product_id,
+    quantity,
+    price,
+    payment_method,
+
+    CAST(
+        REPLACE(
+            SUBSTRING(`timestamp`, 1, 26),
+            'T',
+            ' '
         )
-    """)
+        AS TIMESTAMP_LTZ(6)
+    ) AS `timestamp`
 
-    # ============================================================
-    # KAFKA SOURCE
-    #
-    # Keep Kafka in Flink's default catalog.
-    # Do NOT create this table inside iceberg_catalog.
-    # ============================================================
-    table_env.execute_sql("""
-        CREATE TABLE default_catalog.default_database.kafka_transactions (
-            transaction_id STRING,
-            product_id STRING,
-            quantity INT,
-            price DOUBLE,
-            payment_method STRING,
-            `timestamp` STRING
-        ) WITH (
-            'connector' = 'kafka',
-            'topic' = 'transactions',
-            'properties.bootstrap.servers' = 'kafka:9092',
-            'properties.group.id' = 'icestream-flink-iceberg',
-            'scan.startup.mode' = 'earliest-offset',
-            'format' = 'json'
-        )
-    """)
+FROM classified_transactions
 
-    # ============================================================
-    # SWITCH TO ICEBERG CATALOG
-    # ============================================================
-    table_env.execute_sql("""
-        USE CATALOG iceberg_catalog
-    """)
-
-    # ============================================================
-    # ICEBERG VALID TRANSACTIONS TABLE
-    # ============================================================
-    table_env.execute_sql("""
-        CREATE TABLE IF NOT EXISTS icestream.transactions (
-            transaction_id STRING,
-            product_id STRING,
-            quantity INT,
-            price DOUBLE,
-            payment_method STRING,
-            `timestamp` TIMESTAMP_LTZ(3)
-        )
-    """)
-
-    # ============================================================
-    # ICEBERG DLQ TABLE
-    #
-    # This table will be used later for bad records.
-    # ============================================================
-    table_env.execute_sql("""
-        CREATE TABLE IF NOT EXISTS icestream.transactions_dlq (
-            transaction_id STRING,
-            raw_record STRING,
-            validation_errors STRING,
-            quarantined_at TIMESTAMP_LTZ(3)
-        )
-    """)
-
-    # ============================================================
-    # VALID DATA → ICEBERG
-    #
-    # Only records satisfying the validation rules are written
-    # to the Iceberg transactions table.
-    # ============================================================
-    table_env.execute_sql("""
-        INSERT INTO icestream.transactions
-        SELECT
-            transaction_id,
-            product_id,
-            quantity,
-            price,
-            payment_method,
-            CAST(`timestamp` AS TIMESTAMP_LTZ(3))
-        FROM default_catalog.default_database.kafka_transactions
-        WHERE transaction_id IS NOT NULL
-          AND product_id IS NOT NULL
-          AND quantity > 0
-          AND price >= 0
-          AND payment_method IS NOT NULL
-          AND TRY_CAST(`timestamp` AS TIMESTAMP_LTZ(3)) IS NOT NULL
-    """).wait()
+WHERE validation_error IS NULL
+""")
 
 
-if __name__ == "__main__":
-    main()
+# ============================================================
+# INVALID DATA → DLQ ICEBERG TABLE
+# ============================================================
+
+statement_set.add_insert_sql("""
+INSERT INTO iceberg_catalog.icestream.transactions_dlq
+SELECT
+    transaction_id,
+
+    CONCAT(
+        '{',
+        '"transaction_id":"',
+        COALESCE(transaction_id, ''),
+        '","product_id":"',
+        COALESCE(product_id, ''),
+        '","quantity":',
+        COALESCE(CAST(quantity AS STRING), 'null'),
+        ',"price":',
+        COALESCE(CAST(price AS STRING), 'null'),
+        ',"payment_method":"',
+        COALESCE(payment_method, ''),
+        '","timestamp":"',
+        COALESCE(`timestamp`, ''),
+        '"}'
+    ) AS raw_record,
+
+    validation_error AS validation_errors,
+
+    CURRENT_TIMESTAMP AS quarantined_at
+
+FROM classified_transactions
+
+WHERE validation_error IS NOT NULL
+""")
+
+
+# ============================================================
+# EXECUTE BOTH SINKS AS ONE FLINK JOB
+# ============================================================
+
+statement_set.execute()
