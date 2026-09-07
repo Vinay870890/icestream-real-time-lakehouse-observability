@@ -1,18 +1,8 @@
 ﻿from pyflink.table import EnvironmentSettings, TableEnvironment
 
+
 # ============================================================
-# ICESTREAM - KAFKA TO ICEBERG STREAMING PIPELINE
-#
-# Kafka
-#   |
-#   v
-# Validation / Classification
-#   |
-#   +---- VALID -------> Iceberg transactions
-#   |
-#   +---- INVALID -----> Iceberg transactions_dlq
-#
-# Both sinks are submitted as ONE Flink StatementSet job.
+# FLINK STREAMING ENVIRONMENT
 # ============================================================
 
 settings = EnvironmentSettings.in_streaming_mode()
@@ -22,10 +12,16 @@ t_env.get_config().set(
     "execution.checkpointing.interval",
     "10s"
 )
+
 t_env.get_config().set(
     "execution.checkpointing.timeout",
     "60s"
 )
+
+
+# ============================================================
+# ICEBERG REST CATALOG
+# ============================================================
 
 t_env.execute_sql("""
 CREATE CATALOG iceberg_catalog WITH (
@@ -42,9 +38,19 @@ CREATE CATALOG iceberg_catalog WITH (
 )
 """)
 
+
+# ============================================================
+# ICEBERG DATABASE
+# ============================================================
+
 t_env.execute_sql("""
 CREATE DATABASE IF NOT EXISTS iceberg_catalog.icestream
 """)
+
+
+# ============================================================
+# MAIN ICEBERG TABLE
+# ============================================================
 
 t_env.execute_sql("""
 CREATE TABLE IF NOT EXISTS iceberg_catalog.icestream.transactions (
@@ -57,6 +63,11 @@ CREATE TABLE IF NOT EXISTS iceberg_catalog.icestream.transactions (
 )
 """)
 
+
+# ============================================================
+# DLQ ICEBERG TABLE
+# ============================================================
+
 t_env.execute_sql("""
 CREATE TABLE IF NOT EXISTS iceberg_catalog.icestream.transactions_dlq (
     transaction_id STRING,
@@ -65,6 +76,11 @@ CREATE TABLE IF NOT EXISTS iceberg_catalog.icestream.transactions_dlq (
     quarantined_at TIMESTAMP_LTZ(6)
 )
 """)
+
+
+# ============================================================
+# KAFKA SOURCE
+# ============================================================
 
 t_env.execute_sql("""
 CREATE TABLE kafka_transactions (
@@ -85,9 +101,13 @@ CREATE TABLE kafka_transactions (
 )
 """)
 
+
+# ============================================================
+# DATA QUALITY CLASSIFICATION
+# ============================================================
+
 t_env.execute_sql("""
 CREATE TEMPORARY VIEW classified_transactions AS
-
 SELECT
     transaction_id,
     product_id,
@@ -99,35 +119,52 @@ SELECT
     CASE
         WHEN transaction_id IS NULL
             THEN 'transaction_id is null'
+
         WHEN product_id IS NULL
             THEN 'product_id is null'
+
         WHEN quantity IS NULL OR quantity <= 0
             THEN 'quantity must be greater than 0'
+
         WHEN price IS NULL OR price < 0
             THEN 'price must be greater than or equal to 0'
+
         WHEN payment_method IS NULL
             THEN 'payment_method is null'
-        WHEN payment_method NOT IN (
-            'credit_card',
-            'debit_card',
-            'wallet',
-            'net_banking',
-            'cod'
+
+        WHEN UPPER(payment_method) NOT IN (
+            'CREDIT_CARD',
+            'DEBIT_CARD',
+            'WALLET',
+            'NET_BANKING',
+            'COD',
+            'UPI'
         )
             THEN 'invalid payment_method'
+
         WHEN `timestamp` IS NULL
             THEN 'timestamp is null'
+
         ELSE NULL
     END AS validation_error
 
 FROM kafka_transactions
 """)
 
+
+# ============================================================
+# STATEMENT SET
+# ============================================================
+
 statement_set = t_env.create_statement_set()
+
+
+# ============================================================
+# VALID RECORDS → MAIN ICEBERG TABLE
+# ============================================================
 
 statement_set.add_insert_sql("""
 INSERT INTO iceberg_catalog.icestream.transactions
-
 SELECT
     transaction_id,
     product_id,
@@ -137,9 +174,9 @@ SELECT
 
     CAST(
         REPLACE(
-            REPLACE(`timestamp`, 'T', ' '),
-            'Z',
-            ''
+            SUBSTRING(`timestamp`, 1, 19),
+            'T',
+            ' '
         )
         AS TIMESTAMP_LTZ(6)
     ) AS `timestamp`
@@ -147,11 +184,16 @@ SELECT
 FROM classified_transactions
 
 WHERE validation_error IS NULL
+  AND `timestamp` IS NOT NULL
 """)
+
+
+# ============================================================
+# INVALID RECORDS → DLQ ICEBERG TABLE
+# ============================================================
 
 statement_set.add_insert_sql("""
 INSERT INTO iceberg_catalog.icestream.transactions_dlq
-
 SELECT
     transaction_id,
 
@@ -173,6 +215,7 @@ SELECT
     ) AS raw_record,
 
     validation_error AS validation_errors,
+
     CURRENT_TIMESTAMP AS quarantined_at
 
 FROM classified_transactions
@@ -180,4 +223,12 @@ FROM classified_transactions
 WHERE validation_error IS NOT NULL
 """)
 
-statement_set.execute()
+
+# ============================================================
+# START STREAMING JOB
+# ============================================================
+
+result = statement_set.execute()
+
+print("STREAMING JOB SUBMITTED", flush=True)
+print(result, flush=True)
