@@ -1,25 +1,24 @@
-"""
+﻿"""
 IceStream - Real-Time Stream Processor
 
 Kafka
   ↓
 Validator
   ↓
-Bronze
+Circuit Breaker
   ↓
-Silver
+Bronze / Iceberg
   ↓
-Gold
-  ↓
-Observability Metrics
+Observability
 
 Invalid records are quarantined.
+When error rate exceeds 2%, the circuit opens
+and downstream processing is paused.
 """
 
 import json
 import os
 import sys
-from datetime import datetime, timezone
 
 from kafka import KafkaConsumer
 
@@ -33,10 +32,14 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+
 from quality.validator import Validator
 from lakehouse.bronze_writer import write_to_bronze
 from storage.storage_manager import save_quarantine_record
 from observability.metrics import save_metrics
+from observability.circuit_breaker import check_circuit
+from observability.incident_logger import log_incident
+from observability.final_status import write_pipeline_status
 
 
 KAFKA_BROKER = "localhost:29092"
@@ -115,7 +118,6 @@ def process_transaction(record, validator, stats):
 
     if is_valid:
 
-        # Raw event enters Bronze layer.
         bronze_file = write_to_bronze(record)
 
         print(
@@ -141,6 +143,67 @@ def process_transaction(record, validator, stats):
         )
 
 
+def evaluate_circuit(stats):
+    """Evaluate circuit breaker from live stream statistics."""
+
+    result = check_circuit(
+        stats.total,
+        stats.invalid
+    )
+
+    print()
+    print("=" * 60)
+    print("           LIVE CIRCUIT BREAKER")
+    print("=" * 60)
+
+    print(f"Processed       : {stats.total}")
+    print(f"Valid           : {stats.valid}")
+    print(f"Invalid         : {stats.invalid}")
+    print(f"Error Rate      : {result['error_rate'] * 100:.2f}%")
+    print(f"Threshold       : {result['threshold'] * 100:.2f}%")
+    print(f"Circuit Status  : {result['status']}")
+    print(f"Pipeline Action : {result['pipeline_action']}")
+    print(f"Reason          : {result['reason']}")
+
+    print("=" * 60)
+
+    return result
+
+
+def handle_circuit(result):
+    """Apply automatic pause/remediation decision."""
+
+    if result["status"] == "OPEN":
+
+        incident = log_incident(result)
+
+        write_pipeline_status(
+            status="OPEN",
+            action="QUARANTINE",
+            error_rate=result["error_rate"],
+            threshold=result["threshold"],
+            reason=result["reason"]
+        )
+
+        print()
+        print("🚨 CIRCUIT BREAKER OPEN")
+        print("🚨 DOWNSTREAM PIPELINE PAUSED")
+        print("🚨 BAD DATA QUARANTINED")
+        print(f"🚨 Incident logged: {incident['timestamp']}")
+
+        return False
+
+    write_pipeline_status(
+        status="CLOSED",
+        action="CONTINUE",
+        error_rate=result["error_rate"],
+        threshold=result["threshold"],
+        reason=result["reason"]
+    )
+
+    return True
+
+
 def main():
 
     print("=" * 60)
@@ -150,7 +213,7 @@ def main():
     print(f"Kafka broker : {KAFKA_BROKER}")
     print(f"Kafka topic  : {TOPIC}")
     print()
-    print("Kafka → Validation → Bronze → Observability")
+    print("Kafka → Validation → Circuit Breaker → Bronze")
     print("Invalid records → Quarantine")
     print()
     print(
@@ -163,6 +226,7 @@ def main():
         consumer = get_consumer()
 
     except Exception as error:
+
         print("[ERROR] Could not connect to Kafka.")
         print(f"Reason: {error}")
         return
@@ -189,6 +253,23 @@ def main():
                     validator,
                     stats
                 )
+
+                # Evaluate the circuit after every record.
+                circuit = evaluate_circuit(stats)
+
+                # Automatically pause downstream processing
+                # once the 2% threshold is exceeded.
+                if circuit["status"] == "OPEN":
+
+                    handle_circuit(circuit)
+
+                    print()
+                    print(
+                        "[STOP] Circuit breaker opened. "
+                        "Stopping downstream pipeline."
+                    )
+
+                    break
 
             except Exception as error:
 
