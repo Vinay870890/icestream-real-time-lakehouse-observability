@@ -4,1411 +4,698 @@ import {
   MiniMap,
   Controls,
   Background,
-  Position,
 } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
 import "./App.css";
 
-const REFRESH_INTERVAL = 3000;
-const THRESHOLD = 2;
-
-const DATA_FILES = {
-  metrics: "/data/pipeline_metrics.jsonl",
-  summary: "/data/daily_summary.json",
-  products: "/data/product_performance.jsonl",
-  status: "/pipeline_status.json",
-  incidents: "/incident_log.jsonl",
-};
+const API = "http://127.0.0.1:8000";
 
 const normalStyle = {
-  width: 185,
-  padding: 16,
-  border: "1px solid rgba(34, 197, 94, 0.45)",
-  borderRadius: 14,
-  background: "#0d1f18",
-  color: "#e5e7eb",
+  width: 190,
+  padding: 18,
+  border: "2px solid #16a34a",
+  borderRadius: 12,
+  background: "#f0fdf4",
   textAlign: "center",
-  fontWeight: 600,
-  boxShadow: "0 0 0 1px rgba(34,197,94,0.05)",
+  fontWeight: "600",
 };
 
 const warningStyle = {
-  width: 185,
-  padding: 16,
-  border: "1px solid rgba(239, 68, 68, 0.65)",
-  borderRadius: 14,
-  background: "#251113",
-  color: "#fef2f2",
+  width: 190,
+  padding: 18,
+  border: "2px solid #dc2626",
+  borderRadius: 12,
+  background: "#fef2f2",
   textAlign: "center",
-  fontWeight: 600,
-  boxShadow: "0 0 25px rgba(239,68,68,0.08)",
+  fontWeight: "600",
 };
 
-async function fetchText(url) {
-  const response = await fetch(`${url}?t=${Date.now()}`);
+const breakerClosedStyle = {
+  width: 190,
+  padding: 18,
+  border: "2px solid #2563eb",
+  borderRadius: 12,
+  background: "#eff6ff",
+  textAlign: "center",
+  fontWeight: "600",
+};
+
+async function fetchJSON(endpoint) {
+  const response = await fetch(`${API}${endpoint}`);
 
   if (!response.ok) {
-    throw new Error(`Unable to load ${url}`);
-  }
-
-  return response.text();
-}
-
-async function fetchJson(url) {
-  const response = await fetch(`${url}?t=${Date.now()}`);
-
-  if (!response.ok) {
-    throw new Error(`Unable to load ${url}`);
+    throw new Error(`API error: ${response.status}`);
   }
 
   return response.json();
 }
 
-function parseJsonLines(text) {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-}
-
-function formatNumber(value) {
-  return new Intl.NumberFormat("en-IN").format(Number(value || 0));
-}
-
-function formatCurrency(value) {
-  return `₹${new Intl.NumberFormat("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0))}`;
-}
-
-function formatPercent(value) {
-  return `${Number(value || 0).toFixed(1)}%`;
-}
-
-function formatTime(timestamp) {
-  if (!timestamp) return "--";
-
-  const date = new Date(timestamp);
-
-  if (Number.isNaN(date.getTime())) {
-    return "--";
-  }
-
-  return date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatDateTime(timestamp) {
-  if (!timestamp) return "--";
-
-  const date = new Date(timestamp);
-
-  if (Number.isNaN(date.getTime())) {
-    return "--";
-  }
-
-  return date.toLocaleString([], {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
 function App() {
-  const [metricsHistory, setMetricsHistory] = useState([]);
-  const [summary, setSummary] = useState(null);
-  const [products, setProducts] = useState([]);
-  const [pipelineStatus, setPipelineStatus] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [metrics, setMetrics] = useState(null);
+  const [kpis, setKpis] = useState(null);
   const [incidents, setIncidents] = useState([]);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const [connectionError, setConnectionError] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState("");
 
-  const loadDashboardData = async () => {
-    setRefreshing(true);
-
+  const loadDashboard = async () => {
     try {
       const [
-        metricsText,
-        summaryData,
-        productsText,
         statusData,
-        incidentsText,
+        metricsData,
+        kpiData,
+        incidentData,
       ] = await Promise.all([
-        fetchText(DATA_FILES.metrics),
-        fetchJson(DATA_FILES.summary),
-        fetchText(DATA_FILES.products),
-        fetchJson(DATA_FILES.status),
-        fetchText(DATA_FILES.incidents),
+        fetchJSON("/api/status"),
+        fetchJSON("/api/metrics"),
+        fetchJSON("/api/kpis"),
+        fetchJSON("/api/incidents"),
       ]);
 
-      const metrics = parseJsonLines(metricsText);
-      const productData = parseJsonLines(productsText);
-      const incidentData = parseJsonLines(incidentsText);
-
-      setMetricsHistory(metrics);
-      setSummary(summaryData);
-      setProducts(productData);
-      setPipelineStatus(statusData);
-      setIncidents(incidentData);
-      setLastUpdated(new Date());
-      setConnectionError("");
+      setStatus(statusData);
+      setMetrics(metricsData);
+      setKpis(kpiData);
+      setIncidents(incidentData.incidents || []);
+      setApiError("");
     } catch (error) {
-      console.error("Dashboard refresh failed:", error);
-      setConnectionError(
-        "Unable to refresh pipeline data. Showing the last available snapshot."
+      console.error(error);
+
+      setApiError(
+        "Unable to connect to IceStream API. Make sure FastAPI is running on port 8000."
       );
     } finally {
-      setRefreshing(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-  loadDashboardData();
+    loadDashboard();
 
-  const protocol =
-    window.location.protocol === "https:"
-      ? "wss:"
-      : "ws:";
+    const interval = setInterval(loadDashboard, 5000);
 
-  const wsUrl =
-    `${protocol}//${window.location.host}/ws/observability`;
-
-  const socket = new WebSocket(wsUrl);
-
-  socket.onopen = () => {
-    console.log("[WebSocket] Connected");
-    setConnectionError("");
-  };
-
-  socket.onmessage = (event) => {
-    try {
-      const message = JSON.parse(event.data);
-
-      if (message.type !== "observability_update") {
-        return;
-      }
-
-      const data = message.data;
-
-      setMetricsHistory(data.metrics || []);
-      setPipelineStatus(data.status || null);
-      setIncidents(data.incidents || []);
-      setLastUpdated(new Date());
-
-      setConnectionError("");
-
-      console.log(
-        "[WebSocket] Observability update received"
-      );
-    } catch (error) {
-      console.error(
-        "[WebSocket] Invalid message:",
-        error
-      );
-    }
-  };
-
-  socket.onerror = () => {
-    console.error(
-      "[WebSocket] Connection error"
-    );
-
-    setConnectionError(
-      "WebSocket connection error"
-    );
-  };
-
-  socket.onclose = () => {
-    console.log(
-      "[WebSocket] Disconnected"
-    );
-  };
-
-  return () => {
-    socket.close();
-  };
-}, []);
-
-  const latestMetrics = useMemo(() => {
-    if (!metricsHistory.length) {
-      return {
-        total_records: 0,
-        valid_records: 0,
-        invalid_records: 0,
-        error_rate: 0,
-        error_breakdown: {},
-      };
-    }
-
-    return metricsHistory[metricsHistory.length - 1];
-  }, [metricsHistory]);
-
-  const processed = Number(
-    latestMetrics.total_records || 0
-  );
-
-  const valid = Number(
-    latestMetrics.valid_records || 0
-  );
-
-  const invalid = Number(
-    latestMetrics.invalid_records || 0
-  );
-
-  const errorRate =
-    processed > 0
-      ? (invalid / processed) * 100
-      : Number(latestMetrics.error_rate || 0);
+    return () => clearInterval(interval);
+  }, []);
 
   const isHealthy =
-    errorRate <= THRESHOLD &&
-    pipelineStatus?.status !== "OPEN";
+    status?.status === "CLOSED" ||
+    status?.status === "HEALTHY";
 
-  const circuitOpen =
-    !isHealthy ||
-    pipelineStatus?.status === "OPEN";
-
-  const topProducts = useMemo(() => {
-    return [...products]
-      .sort(
-        (a, b) =>
-          Number(b.total_revenue || 0) -
-          Number(a.total_revenue || 0)
-      )
-      .slice(0, 5);
-  }, [products]);
-
-  const latestIncidents = useMemo(() => {
-    return [...incidents]
-      .reverse()
-      .slice(0, 5);
-  }, [incidents]);
-
-  const healthLabel = isHealthy
+  const pipelineStatus = isHealthy
     ? "HEALTHY"
-    : "OPEN";
+    : "QUARANTINED";
 
-  const processingLabel = isHealthy
-    ? "ACTIVE"
-    : "PAUSED";
+  const errorRate = Number(
+    metrics?.error_rate ??
+      status?.error_rate ??
+      0
+  );
 
-  const pipelineAction = isHealthy
-    ? "NONE"
-    : "PAUSE";
+  const threshold = Number(
+    status?.threshold ?? 0.02
+  );
 
-  const remediation = isHealthy
-    ? "NONE"
-    : "QUARANTINE";
+  const errorRatePercent =
+    errorRate <= 1
+      ? errorRate * 100
+      : errorRate;
 
-  const nodes = [
-    {
-      id: "generator",
-      position: { x: 0, y: 180 },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      data: {
-        label: (
-          <div>
-            <div>⚡ GENERATE</div>
-            <small>Transaction Generator</small>
-            <br />
-            <small>Streaming Data</small>
-          </div>
-        ),
-      },
-      style: normalStyle,
-    },
+  const thresholdPercent =
+    threshold <= 1
+      ? threshold * 100
+      : threshold;
 
-    {
-      id: "kafka",
-      position: { x: 235, y: 180 },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      data: {
-        label: (
-          <div>
-            <div>📥 INGEST</div>
-            <small>Apache Kafka</small>
-            <br />
-            <small>Event Stream</small>
-          </div>
-        ),
-      },
-      style: normalStyle,
-    },
+  /*
+   * ================================
+   * LIVE PIPELINE ARCHITECTURE
+   * ================================
+   */
 
-    {
-      id: "quality",
-      position: { x: 470, y: 180 },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      data: {
-        label: (
-          <div>
+  const nodes = useMemo(
+    () => [
+      {
+        id: "kafka",
+        position: {
+          x: 40,
+          y: 180,
+        },
+        data: {
+          label: (
             <div>
-              {circuitOpen ? "🚨 QUALITY" : "✓ QUALITY"}
+              <div>📥 INGEST</div>
+
+              <small>
+                Apache Kafka
+              </small>
+
+              <br />
+
+              <small>
+                Streaming Input
+              </small>
             </div>
-            <small>Validation</small>
-            <br />
-            <small>
-              {circuitOpen
-                ? "Errors Detected"
-                : "Data Validated"}
-            </small>
-          </div>
-        ),
+          ),
+        },
+        style: normalStyle,
       },
-      style: circuitOpen
-        ? warningStyle
-        : normalStyle,
-    },
 
-    {
-      id: "bronze",
-      position: { x: 705, y: 180 },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      data: {
-        label: (
-          <div>
-            <div>🥉 BRONZE</div>
-            <small>Raw Storage</small>
-            <br />
-            <small>JSONL</small>
-          </div>
-        ),
+      {
+        id: "flink",
+        position: {
+          x: 300,
+          y: 180,
+        },
+        data: {
+          label: (
+            <div>
+              <div>
+                {isHealthy
+                  ? "⚙️"
+                  : "🚨"}{" "}
+                PROCESS
+              </div>
+
+              <small>
+                Apache Flink
+              </small>
+
+              <br />
+
+              <small>
+                {isHealthy
+                  ? "Processing"
+                  : "Data Quality Failure"}
+              </small>
+            </div>
+          ),
+        },
+
+        style: isHealthy
+          ? normalStyle
+          : warningStyle,
       },
-      style: normalStyle,
-    },
 
-    {
-      id: "silver",
-      position: { x: 940, y: 180 },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      data: {
-        label: (
-          <div>
-            <div>🥈 SILVER</div>
-            <small>Cleaned Data</small>
-            <br />
-            <small>Validated Records</small>
-          </div>
-        ),
+      {
+        id: "breaker",
+        position: {
+          x: 560,
+          y: 180,
+        },
+        data: {
+          label: (
+            <div>
+              <div>
+                {isHealthy
+                  ? "🛡️"
+                  : "🚨"}{" "}
+                CIRCUIT BREAKER
+              </div>
+
+              <small>
+                {isHealthy
+                  ? "CLOSED"
+                  : "OPEN"}
+              </small>
+
+              <br />
+
+              <small>
+                {isHealthy
+                  ? "Pipeline Allowed"
+                  : "Pipeline Paused"}
+              </small>
+            </div>
+          ),
+        },
+
+        style: isHealthy
+          ? breakerClosedStyle
+          : warningStyle,
       },
-      style: normalStyle,
-    },
 
-    {
-      id: "gold",
-      position: { x: 1175, y: 180 },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      data: {
-        label: (
-          <div>
-            <div>🥇 GOLD</div>
-            <small>Business Analytics</small>
-            <br />
-            <small>Aggregated Data</small>
-          </div>
-        ),
+      {
+        id: "iceberg",
+        position: {
+          x: 820,
+          y: 80,
+        },
+        data: {
+          label: (
+            <div>
+              <div>🗄️ SERVE</div>
+
+              <small>
+                Apache Iceberg
+              </small>
+
+              <br />
+
+              <small>
+                {isHealthy
+                  ? "Lakehouse Active"
+                  : "PAUSED"}
+              </small>
+            </div>
+          ),
+        },
+
+        style: isHealthy
+          ? normalStyle
+          : warningStyle,
       },
-      style: normalStyle,
-    },
 
-    {
-      id: "observability",
-      position: { x: 1410, y: 180 },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      data: {
-        label: (
-          <div>
-            <div>📊 OBSERVE</div>
-            <small>Metrics Engine</small>
-            <br />
-            <small>Health Monitoring</small>
-          </div>
-        ),
+      {
+        id: "quarantine",
+        position: {
+          x: 820,
+          y: 300,
+        },
+        data: {
+          label: (
+            <div>
+              <div>
+                🛑 QUARANTINE
+              </div>
+
+              <small>
+                Bad Data / DLQ
+              </small>
+
+              <br />
+
+              <small>
+                {isHealthy
+                  ? "Standby"
+                  : "Bad Records Isolated"}
+              </small>
+            </div>
+          ),
+        },
+
+        style: warningStyle,
       },
-      style: normalStyle,
-    },
+    ],
+    [isHealthy]
+  );
 
-    {
-      id: "dashboard",
-      position: { x: 1645, y: 180 },
-      targetPosition: Position.Left,
-      data: {
-        label: (
-          <div>
-            <div>🖥 DASHBOARD</div>
-            <small>IceStream UI</small>
-            <br />
-            <small>Live Monitoring</small>
-          </div>
-        ),
+  /*
+   * ================================
+   * PIPELINE EDGES
+   * ================================
+   */
+
+  const edges = useMemo(
+    () => [
+      {
+        id: "kafka-flink",
+
+        source: "kafka",
+        target: "flink",
+
+        animated: true,
+
+        label: "STREAM",
       },
-      style: normalStyle,
-    },
 
-    {
-      id: "quarantine",
-      position: { x: 470, y: 430 },
-      targetPosition: Position.Top,
-      data: {
-        label: (
-          <div>
-            <div>🛑 QUARANTINE</div>
-            <small>Bad Data / DLQ</small>
-            <br />
-            <small>Automated Remediation</small>
-          </div>
-        ),
+      {
+        id: "flink-breaker",
+
+        source: "flink",
+        target: "breaker",
+
+        animated: true,
+
+        label: isHealthy
+          ? "VALIDATE"
+          : "DQ FAILURE",
       },
-      style: warningStyle,
-    },
-  ];
 
-  const edges = [
-    {
-      id: "generator-kafka",
-      source: "generator",
-      target: "kafka",
-      animated: true,
-    },
+      {
+        id: "breaker-iceberg",
 
-    {
-      id: "kafka-quality",
-      source: "kafka",
-      target: "quality",
-      animated: true,
-    },
+        source: "breaker",
+        target: "iceberg",
 
-    {
-      id: "quality-bronze",
-      source: "quality",
-      target: "bronze",
-      animated: isHealthy,
-    },
+        animated: isHealthy,
 
-    {
-      id: "bronze-silver",
-      source: "bronze",
-      target: "silver",
-      animated: isHealthy,
-    },
+        label: isHealthy
+          ? "ALLOW"
+          : "BLOCK",
+      },
 
-    {
-      id: "silver-gold",
-      source: "silver",
-      target: "gold",
-      animated: isHealthy,
-    },
+      {
+        id: "breaker-quarantine",
 
-    {
-      id: "gold-observability",
-      source: "gold",
-      target: "observability",
-      animated: true,
-    },
+        source: "breaker",
+        target: "quarantine",
 
-    {
-      id: "observability-dashboard",
-      source: "observability",
-      target: "dashboard",
-      animated: true,
-    },
+        animated: !isHealthy,
 
-    {
-      id: "quality-quarantine",
-      source: "quality",
-      target: "quarantine",
-      animated: circuitOpen,
-    },
-  ];
+        label: !isHealthy
+          ? "QUARANTINE"
+          : "STANDBY",
+      },
+    ],
+    [isHealthy]
+  );
+
+  /*
+   * ================================
+   * LOADING
+   * ================================
+   */
+
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <h1>IceStream</h1>
+
+        <p>
+          Connecting to observability backend...
+        </p>
+      </div>
+    );
+  }
+
+  /*
+   * ================================
+   * DASHBOARD
+   * ================================
+   */
 
   return (
     <div className="dashboard">
 
       {/* HEADER */}
-      <header className="dashboard-header">
 
-        <div className="brand">
+      <header className="header">
 
-          <div className="brand-mark">
-            IS
-          </div>
+        <div>
+          <h1>
+            IceStream
+          </h1>
 
-          <div>
-            <h1>IceStream</h1>
-            <p>
-              Real-Time Lakehouse Observability
-            </p>
-          </div>
-
+          <p>
+            Real-Time Lakehouse Observability
+          </p>
         </div>
 
-        <div className="header-right">
-
-          <div className="live-indicator">
-            <span className="live-dot"></span>
-            LIVE
-          </div>
-
-          <div
-            className={`status-pill ${
-              isHealthy
-                ? "healthy"
-                : "danger"
-            }`}
-          >
-            <span className="status-dot"></span>
-            {healthLabel}
-          </div>
-
+        <div
+          className={`status-badge ${
+            isHealthy
+              ? "healthy"
+              : "danger"
+          }`}
+        >
+          ● {pipelineStatus}
         </div>
 
       </header>
 
-      {/* CONNECTION STATUS */}
-      <div className="connection-bar">
+      {/* API ERROR */}
 
-        <div>
-
-          <span
-            className={
-              connectionError
-                ? "connection-dot offline"
-                : "connection-dot"
-            }
-          />
-
-          {connectionError
-            ? connectionError
-            : "Pipeline data connected"}
-
+      {apiError && (
+        <div className="api-error">
+          ⚠️ {apiError}
         </div>
-
-        <div>
-          Last refresh:{" "}
-          <strong>
-            {lastUpdated
-              ? lastUpdated.toLocaleTimeString()
-              : "--"}
-          </strong>
-
-          <span className="refresh-state">
-            {refreshing ? " • refreshing..." : ""}
-          </span>
-        </div>
-
-      </div>
-
-      {/* TOP SUMMARY */}
-      <section className="top-grid">
-
-        <div className="info-card">
-
-          <span className="card-label">
-            PIPELINE
-          </span>
-
-          <strong>
-            IceStream
-          </strong>
-
-          <span className="muted">
-            Real-time data platform
-          </span>
-
-        </div>
-
-        <div className="info-card">
-
-          <span className="card-label">
-            PROCESSING
-          </span>
-
-          <strong>
-            {processingLabel}
-          </strong>
-
-          <span className="muted">
-            Automated protection
-          </span>
-
-        </div>
-
-        <div className="info-card">
-
-          <span className="card-label">
-            DATA QUALITY
-          </span>
-
-          <strong>
-            {formatPercent(errorRate)}
-          </strong>
-
-          <span className="muted">
-            Threshold: {THRESHOLD}%
-          </span>
-
-        </div>
-
-        <div className="info-card">
-
-          <span className="card-label">
-            SNAPSHOTS
-          </span>
-
-          <strong>
-            {formatNumber(metricsHistory.length)}
-          </strong>
-
-          <span className="muted">
-            Recorded metric snapshots
-          </span>
-
-        </div>
-
-      </section>
-
-      {/* LAKEHOUSE VERIFICATION */}
-      <section className="top-grid">
-
-        <div className="info-card">
-          <span className="card-label">ICEBERG RECORDS</span>
-          <strong>45</strong>
-          <span className="muted">Current transactions</span>
-        </div>
-
-        <div className="info-card">
-          <span className="card-label">DLQ RECORDS</span>
-          <strong>9</strong>
-          <span className="muted">Quarantined records</span>
-        </div>
-
-        <div className="info-card">
-          <span className="card-label">CURRENT SNAPSHOT</span>
-          <strong>3169544051850670634</strong>
-          <span className="muted">Latest Iceberg snapshot</span>
-        </div>
-
-        <div className="info-card">
-          <span className="card-label">TIME TRAVEL</span>
-          <strong>4 RECORDS</strong>
-          <span className="muted">Historical snapshot verified</span>
-        </div>
-
-      </section>
-      {/* ALERT */}
-      {circuitOpen && (
-        <section className="alert-banner">
-
-          <div className="alert-icon">
-            !
-          </div>
-
-          <div className="alert-content">
-
-            <strong>
-              Pipeline protection activated
-            </strong>
-
-            <p>
-              Data quality error rate exceeded the
-              configured {THRESHOLD}% threshold.
-              Pipeline processing has been paused
-              and bad records have been quarantined.
-            </p>
-
-          </div>
-
-          <div className="alert-action">
-            PAUSE
-          </div>
-
-        </section>
       )}
 
-      {/* PIPELINE HEALTH */}
-      <section className="section">
+      {/* HERO */}
 
-        <div className="section-heading">
+      <section className="hero">
 
-          <div>
+        <div>
 
-            <span className="eyebrow">
-              OBSERVABILITY
-            </span>
+          <span className="eyebrow">
+            LIVE MONITORING
+          </span>
 
-            <h2>
-              Pipeline Health
-            </h2>
+          <h2>
+            Pipeline Observability
+          </h2>
 
-            <p>
-              Latest pipeline snapshot
-            </p>
-
-          </div>
-
-          <div className="section-meta">
-            <span className="live-badge">
-              ● LIVE
-            </span>
-
-            <span className="timestamp">
-              {formatDateTime(
-                latestMetrics.timestamp
-              )}
-            </span>
-          </div>
+          <p>
+            Real-time health monitoring and
+            automated data-quality protection.
+          </p>
 
         </div>
 
-        <div className="kpi-grid">
+        <div className="refresh">
+          ● Live · Refreshing every 5 seconds
+        </div>
 
-          <div className="kpi-card">
+      </section>
 
-            <span className="kpi-icon">
-              Σ
-            </span>
+      {/* KPI CARDS */}
 
-            <span className="kpi-label">
-              PROCESSED RECORDS
-            </span>
+      <section className="kpi-grid">
 
-            <strong>
-              {formatNumber(processed)}
-            </strong>
+        <div className="card">
 
-            <small>
-              Total records processed
-            </small>
+          <span>
+            Pipeline Status
+          </span>
 
-          </div>
+          <strong
+            className={
+              isHealthy
+                ? "green"
+                : "red"
+            }
+          >
+            {pipelineStatus}
+          </strong>
 
-          <div className="kpi-card success-card">
+          <small>
+            {status?.action ||
+              "UNKNOWN"}
+          </small>
 
-            <span className="kpi-icon">
-              ✓
-            </span>
+        </div>
 
-            <span className="kpi-label">
-              VALID RECORDS
-            </span>
+        <div className="card">
 
-            <strong>
-              {formatNumber(valid)}
-            </strong>
+          <span>
+            Error Rate
+          </span>
 
-            <small>
-              Passed validation
-            </small>
+          <strong className="red">
+            {errorRatePercent.toFixed(2)}%
+          </strong>
 
-          </div>
+          <small>
+            Threshold:{" "}
+            {thresholdPercent.toFixed(2)}%
+          </small>
 
-          <div className="kpi-card danger-card">
+        </div>
 
-            <span className="kpi-icon">
-              !
-            </span>
+        <div className="card">
 
-            <span className="kpi-label">
-              INVALID RECORDS
-            </span>
+          <span>
+            Processed
+          </span>
 
-            <strong>
-              {formatNumber(invalid)}
-            </strong>
+          <strong>
+            {metrics?.total_records ?? 0}
+          </strong>
 
-            <small>
-              Failed validation
-            </small>
+          <small>
+            Valid:{" "}
+            {metrics?.valid_records ?? 0}
+          </small>
 
-          </div>
+        </div>
 
-          <div className="kpi-card danger-card">
+        <div className="card">
 
-            <span className="kpi-icon">
-              %
-            </span>
+          <span>
+            Invalid Records
+          </span>
 
-            <span className="kpi-label">
-              ERROR RATE
-            </span>
+          <strong className="red">
+            {metrics?.invalid_records ?? 0}
+          </strong>
 
-            <strong>
-              {formatPercent(errorRate)}
-            </strong>
-
-            <small>
-              Threshold: {THRESHOLD}%
-            </small>
-
-          </div>
+          <small>
+            Quarantine protected
+          </small>
 
         </div>
 
       </section>
 
-      {/* TREND + PROTECTION */}
-      <section className="main-grid">
+      {/* ANALYTICS */}
 
-        {/* TREND */}
-        <div className="panel trend-panel">
+      <section className="analytics-grid">
 
-          <div className="panel-header">
+        <div className="panel">
+
+          <h3>
+            Business Analytics
+          </h3>
+
+          <div className="metric-list">
 
             <div>
-              <span className="eyebrow">
-                QUALITY TREND
+              <span>
+                Transactions
               </span>
 
-              <h2>
-                Error Rate History
-              </h2>
-
-              <p>
-                Recent pipeline quality snapshots
-              </p>
+              <strong>
+                {kpis?.total_transactions ?? 0}
+              </strong>
             </div>
 
-            <span className="panel-icon">
-              ↗
-            </span>
+            <div>
+              <span>
+                Quantity
+              </span>
 
-          </div>
+              <strong>
+                {kpis?.total_quantity ?? 0}
+              </strong>
+            </div>
 
-          <div className="trend-chart">
+            <div>
+              <span>
+                Revenue
+              </span>
 
-            {metricsHistory.length === 0 ? (
-              <div className="empty-state">
-                No metric history available.
-              </div>
-            ) : (
-              metricsHistory
-                .slice(-12)
-                .map((metric, index) => {
+              <strong>
+                ₹
+                {Number(
+                  kpis?.total_revenue ?? 0
+                ).toLocaleString()}
+              </strong>
+            </div>
 
-                  const rate =
-                    Number(
-                      metric.error_rate || 0
-                    );
+            <div>
+              <span>
+                Average Order Value
+              </span>
 
-                  const height =
-                    Math.min(
-                      Math.max(rate, 2),
-                      100
-                    );
+              <strong>
+                ₹
+                {Number(
+                  kpis?.average_order_value ?? 0
+                ).toLocaleString()}
+              </strong>
+            </div>
 
-                  return (
-                    <div
-                      className="trend-column"
-                      key={`${metric.timestamp}-${index}`}
-                    >
-
-                      <div className="trend-value">
-                        {rate.toFixed(1)}%
-                      </div>
-
-                      <div className="trend-bar-wrapper">
-
-                        <div
-                          className={`trend-bar ${
-                            rate > THRESHOLD
-                              ? "bad"
-                              : "good"
-                          }`}
-                          style={{
-                            height: `${height}%`,
-                          }}
-                        />
-
-                      </div>
-
-                      <small>
-                        {formatTime(
-                          metric.timestamp
-                        )}
-                      </small>
-
-                    </div>
-                  );
-                })
-            )}
-
-          </div>
-
-          <div className="threshold-line">
-            <span>
-              Threshold
-            </span>
-
-            <strong>
-              {THRESHOLD}%
-            </strong>
           </div>
 
         </div>
 
         {/* PROTECTION */}
+
         <div className="panel">
 
-          <div className="panel-header">
+          <h3>
+            Pipeline Protection
+          </h3>
 
-            <div>
-              <span className="eyebrow">
-                PROTECTION
-              </span>
+          <div className="protection">
 
-              <h2>
-                Pipeline Protection
-              </h2>
-
-              <p>
-                Automated circuit breaker
-              </p>
-            </div>
-
-            <span className="panel-icon">
-              ⚡
-            </span>
-
-          </div>
-
-          <div className="protection-status">
-
-            <span
-              className={`large-status ${
-                circuitOpen
-                  ? "red"
-                  : "green"
-              }`}
+            <div
+              className={
+                isHealthy
+                  ? "protection-ok"
+                  : "protection-danger"
+              }
             >
-              {circuitOpen
-                ? "OPEN"
-                : "CLOSED"}
-            </span>
-
-            <span className="muted">
-              Circuit Breaker
-            </span>
-
-          </div>
-
-          <div className="metric-row">
-            <span>
-              Error Rate
-            </span>
-
-            <strong>
-              {formatPercent(errorRate)}
-            </strong>
-          </div>
-
-          <div className="metric-row">
-            <span>
-              Configured Threshold
-            </span>
-
-            <strong>
-              {THRESHOLD}%
-            </strong>
-          </div>
-
-          <div className="metric-row">
-            <span>
-              Pipeline Action
-            </span>
-
-            <strong>
-              {pipelineAction}
-            </strong>
-          </div>
-
-          <div className="metric-row">
-            <span>
-              Remediation
-            </span>
-
-            <strong>
-              {remediation}
-            </strong>
-          </div>
-
-        </div>
-
-      </section>
-
-      {/* GOLD LAYER */}
-      <section className="main-grid">
-
-        <div className="panel">
-
-          <div className="panel-header">
-
-            <div>
-              <span className="eyebrow">
-                GOLD LAYER
-              </span>
-
-              <h2>
-                Business Analytics
-              </h2>
-
-              <p>
-                Curated lakehouse business metrics
-              </p>
+              {isHealthy
+                ? "● CLOSED"
+                : "● OPEN"}
             </div>
 
-            <span className="panel-icon">
-              ₹
-            </span>
-
-          </div>
-
-          <div className="analytics-grid">
-
-            <div>
-              <span>
-                TRANSACTIONS
-              </span>
-
+            <p>
+              Error Rate:{" "}
               <strong>
-                {formatNumber(
-                  summary?.total_transactions
-                )}
+                {errorRatePercent.toFixed(2)}%
               </strong>
-            </div>
+            </p>
 
-            <div>
-              <span>
-                QUANTITY
-              </span>
-
+            <p>
+              Threshold:{" "}
               <strong>
-                {formatNumber(
-                  summary?.total_quantity
-                )}
+                {thresholdPercent.toFixed(2)}%
               </strong>
-            </div>
+            </p>
 
-            <div>
-              <span>
-                TOTAL REVENUE
-              </span>
-
+            <p>
+              Action:{" "}
               <strong>
-                {formatCurrency(
-                  summary?.total_revenue
-                )}
+                {status?.action ||
+                  "UNKNOWN"}
               </strong>
-            </div>
+            </p>
 
-            <div>
-              <span>
-                AVG ORDER VALUE
-              </span>
-
-              <strong>
-                {formatCurrency(
-                  summary?.average_order_value
-                )}
-              </strong>
-            </div>
+            <p>
+              Reason:{" "}
+              {status?.reason ||
+                "No reason available"}
+            </p>
 
           </div>
 
         </div>
 
-        {/* DATA QUALITY BREAKDOWN */}
+        {/* PRODUCT */}
+
         <div className="panel">
 
-          <div className="panel-header">
+          <h3>
+            Product Analytics
+          </h3>
+
+          <div className="metric-list">
 
             <div>
-              <span className="eyebrow">
-                DATA QUALITY
+              <span>
+                Top Product
               </span>
 
-              <h2>
-                Error Breakdown
-              </h2>
-
-              <p>
-                Latest validation failures
-              </p>
+              <strong>
+                {kpis?.top_product ||
+                  "N/A"}
+              </strong>
             </div>
-
-            <span className="panel-icon">
-              !
-            </span>
-
-          </div>
-
-          <div className="error-list">
-
-            {Object.entries(
-              latestMetrics.error_breakdown || {}
-            ).length === 0 ? (
-              <div className="quality-good">
-                <span>✓</span>
-                <div>
-                  <strong>
-                    No validation errors
-                  </strong>
-
-                  <small>
-                    Latest snapshot passed quality checks.
-                  </small>
-                </div>
-              </div>
-            ) : (
-              Object.entries(
-                latestMetrics.error_breakdown || {}
-              )
-                .sort((a, b) => b[1] - a[1])
-                .map(([name, count]) => (
-                  <div
-                    className="error-item"
-                    key={name}
-                  >
-
-                    <div className="error-name">
-                      <span className="error-dot"></span>
-                      {name}
-                    </div>
-
-                    <strong>
-                      {count}
-                    </strong>
-
-                  </div>
-                ))
-            )}
-
-          </div>
-
-        </div>
-
-      </section>
-
-      {/* PRODUCT + INCIDENTS */}
-      <section className="main-grid">
-
-        {/* PRODUCTS */}
-        <div className="panel">
-
-          <div className="panel-header">
 
             <div>
-              <span className="eyebrow">
-                ANALYTICS
+              <span>
+                Product Revenue
               </span>
 
-              <h2>
-                Product Performance
-              </h2>
-
-              <p>
-                Top products by revenue
-              </p>
+              <strong>
+                ₹
+                {Number(
+                  kpis?.top_product_revenue ?? 0
+                ).toLocaleString()}
+              </strong>
             </div>
-
-            <span className="panel-icon">
-              ★
-            </span>
-
-          </div>
-
-          <div className="product-table">
-
-            <div className="product-table-header">
-              <span>RANK</span>
-              <span>PRODUCT</span>
-              <span>REVENUE</span>
-              <span>QTY</span>
-            </div>
-
-            {topProducts.length === 0 ? (
-              <div className="empty-state">
-                No product data available.
-              </div>
-            ) : (
-              topProducts.map(
-                (product, index) => (
-                  <div
-                    className="product-row"
-                    key={product.product_id}
-                  >
-
-                    <span className="rank">
-                      #{index + 1}
-                    </span>
-
-                    <strong>
-                      {product.product_id}
-                    </strong>
-
-                    <span>
-                      {formatCurrency(
-                        product.total_revenue
-                      )}
-                    </span>
-
-                    <span>
-                      {formatNumber(
-                        product.total_quantity
-                      )}
-                    </span>
-
-                  </div>
-                )
-              )
-            )}
-
-          </div>
-
-          <div className="product-footer">
-
-            <span>
-              Unique Products
-            </span>
-
-            <strong>
-              {formatNumber(
-                summary?.unique_products
-              )}
-            </strong>
-
-            <span>
-              Avg. Quantity / Transaction
-            </span>
-
-            <strong>
-              {summary?.total_transactions
-                ? (
-                    Number(
-                      summary.total_quantity
-                    ) /
-                    Number(
-                      summary.total_transactions
-                    )
-                  ).toFixed(1)
-                : "0.0"}
-            </strong>
-
-          </div>
-
-        </div>
-
-        {/* INCIDENTS */}
-        <div className="panel">
-
-          <div className="panel-header">
 
             <div>
-              <span className="eyebrow">
-                INCIDENT MANAGEMENT
+              <span>
+                Unique Products
               </span>
 
-              <h2>
-                Recent Incidents
-              </h2>
-
-              <p>
-                Pipeline protection events
-              </p>
+              <strong>
+                {kpis?.unique_products ?? 0}
+              </strong>
             </div>
 
-            <span className="panel-icon">
-              ⚠
-            </span>
+            <div>
+              <span>
+                Avg Quantity / Transaction
+              </span>
 
-          </div>
-
-          <div className="incident-list">
-
-            {latestIncidents.length === 0 ? (
-              <div className="quality-good">
-                <span>✓</span>
-
-                <div>
-                  <strong>
-                    No recent incidents
-                  </strong>
-
-                  <small>
-                    Pipeline operating normally.
-                  </small>
-                </div>
-              </div>
-            ) : (
-              latestIncidents.map(
-                (incident, index) => {
-
-                  const rate =
-                    incident.error_rate ??
-                    incident.errorRate ??
-                    0;
-
-                  const time =
-                    incident.timestamp ||
-                    incident.time ||
-                    incident.created_at;
-
-                  return (
-                    <div
-                      className="incident"
-                      key={`${time}-${index}`}
-                    >
-
-                      <span className="incident-time">
-                        {formatTime(time)}
-                      </span>
-
-                      <b className="incident-open">
-                        {incident.status ||
-                          "OPEN"}
-                      </b>
-
-                      <span>
-                        {formatPercent(rate)}
-                      </span>
-
-                      <span>
-                        {incident.pipeline_action ||
-                          incident.action ||
-                          "PAUSE"}
-                      </span>
-
-                      <strong>
-                        {incident.remediation ||
-                          "QUARANTINE"}                         <small className="incident-reason">{incident.reason || "No reason provided"}</small>
-                      </strong>
-
-                    </div>
-                  );
-                }
-              )
-            )}
+              <strong>
+                {kpis?.average_quantity_per_transaction ??
+                  0}
+              </strong>
+            </div>
 
           </div>
 
@@ -1417,29 +704,26 @@ function App() {
       </section>
 
       {/* ARCHITECTURE */}
-      <section className="architecture-section">
+
+      <section className="panel architecture">
 
         <div className="section-heading">
 
           <div>
 
             <span className="eyebrow">
-              SYSTEM ARCHITECTURE
+              DATA FLOW
             </span>
 
-            <h2>
-              IceStream Data Pipeline
-            </h2>
-
-            <p>
-              End-to-end real-time lakehouse architecture
-            </p>
+            <h3>
+              Live Pipeline Architecture
+            </h3>
 
           </div>
 
-          <div className="architecture-badge">
-            9 STAGES
-          </div>
+          <span className="live-indicator">
+            ● LIVE
+          </span>
 
         </div>
 
@@ -1450,24 +734,15 @@ function App() {
             edges={edges}
             fitView
             fitViewOptions={{
-              padding: 0.12,
+              padding: 0.2,
             }}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            zoomOnScroll
-            panOnScroll
-            minZoom={0.25}
-            maxZoom={1.5}
           >
 
             <Controls />
 
             <MiniMap />
 
-            <Background
-              gap={24}
-              size={1}
-            />
+            <Background />
 
           </ReactFlow>
 
@@ -1475,40 +750,137 @@ function App() {
 
       </section>
 
+      {/* INCIDENT MANAGEMENT */}
+
+      <section className="panel">
+
+        <div className="section-heading">
+
+          <div>
+
+            <span className="eyebrow">
+              INCIDENT MANAGEMENT
+            </span>
+
+            <h3>
+              Recent Incidents
+            </h3>
+
+          </div>
+
+          <span>
+            {incidents.length} recorded
+          </span>
+
+        </div>
+
+        {incidents.length === 0 ? (
+
+          <div className="empty">
+            No incidents recorded.
+          </div>
+
+        ) : (
+
+          <div className="incident-table">
+
+            {incidents
+              .slice(0, 8)
+              .map(
+                (incident, index) => {
+
+                  const incidentHealthy =
+                    incident.status ===
+                      "CLOSED" ||
+                    incident.pipeline_status ===
+                      "RUNNING";
+
+                  const incidentRate =
+                    Number(
+                      incident.error_rate ?? 0
+                    );
+
+                  const incidentRatePercent =
+                    incidentRate <= 1
+                      ? incidentRate * 100
+                      : incidentRate;
+
+                  return (
+
+                    <div
+                      className="incident-row"
+                      key={index}
+                    >
+
+                      <span>
+                        {incident.timestamp
+                          ? new Date(
+                              incident.timestamp
+                            ).toLocaleTimeString()
+                          : "—"}
+                      </span>
+
+                      <strong
+                        className={
+                          incidentHealthy
+                            ? "green"
+                            : "red"
+                        }
+                      >
+                        {incident.status ||
+                          "OPEN"}
+                      </strong>
+
+                      <span>
+                        Error Rate:{" "}
+                        {incidentRatePercent.toFixed(
+                          2
+                        )}
+                        %
+                      </span>
+
+                      <span>
+                        {incident.action ||
+                          incident.pipeline_action ||
+                          "PAUSE"}
+                      </span>
+
+                      <span
+                        className={
+                          incidentHealthy
+                            ? "green"
+                            : "red"
+                        }
+                      >
+                        {incidentHealthy
+                          ? "—"
+                          : "QUARANTINE"}
+                      </span>
+
+                    </div>
+
+                  );
+                }
+              )}
+
+          </div>
+
+        )}
+
+      </section>
+
       {/* FOOTER */}
+
       <footer>
 
-        <div className="footer-brand">
+        <span>
+          IceStream · Real-Time Lakehouse
+          Observability
+        </span>
 
-          <strong>
-            IceStream
-          </strong>
-
-          <span>
-            Real-Time Lakehouse Observability Platform
-          </span>
-
-        </div>
-
-        <div className="footer-tags">
-
-          <span>
-            DATA QUALITY
-          </span>
-
-          <span>
-            LAKEHOUSE
-          </span>
-
-          <span>
-            ANALYTICS
-          </span>
-
-          <span>
-            AUTOMATED PROTECTION
-          </span>
-
-        </div>
+        <span>
+          FastAPI · React · React Flow
+        </span>
 
       </footer>
 
@@ -1517,6 +889,3 @@ function App() {
 }
 
 export default App;
-
-
-
