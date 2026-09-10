@@ -689,6 +689,34 @@ function App() {
 
       </section>
 
+      {/* LAKEHOUSE VERIFICATION */}
+      <section className="top-grid">
+
+        <div className="info-card">
+          <span className="card-label">ICEBERG RECORDS</span>
+          <strong>45</strong>
+          <span className="muted">Current transactions</span>
+        </div>
+
+        <div className="info-card">
+          <span className="card-label">DLQ RECORDS</span>
+          <strong>9</strong>
+          <span className="muted">Quarantined records</span>
+        </div>
+
+        <div className="info-card">
+          <span className="card-label">CURRENT SNAPSHOT</span>
+          <strong>3169544051850670634</strong>
+          <span className="muted">Latest Iceberg snapshot</span>
+        </div>
+
+        <div className="info-card">
+          <span className="card-label">TIME TRAVEL</span>
+          <strong>4 RECORDS</strong>
+          <span className="muted">Historical snapshot verified</span>
+        </div>
+
+      </section>
       {/* ALERT */}
       {circuitOpen && (
         <section className="alert-banner">
@@ -1373,7 +1401,7 @@ function App() {
 
                       <strong>
                         {incident.remediation ||
-                          "QUARANTINE"}
+                          "QUARANTINE"}                         <small className="incident-reason">{incident.reason || "No reason provided"}</small>
                       </strong>
 
                     </div>
@@ -1489,3 +1517,6 @@ function App() {
 }
 
 export default App;
+
+
+

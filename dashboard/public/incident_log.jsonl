@@ -29,3 +29,18 @@
 {"timestamp": "2026-08-30T11:10:11.068932", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.275, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
 {"timestamp": "2026-08-31T17:59:32.778562", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.2, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
 {"timestamp": "2026-08-31T18:06:10.380600", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.2, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-02T17:18:11.677520", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.2, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-02T17:22:45.331218", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.2, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-02T17:35:24.256233", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.2, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-02T17:38:12.376314", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.03, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-02T17:53:33.029688", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.45, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-05T15:53:30.938772", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.45, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-05T16:21:43.919251", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.45, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-05T16:24:02.081081", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.45, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-05T16:26:51.622305", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.25, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-07T14:01:01.852244", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.5, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-07T14:19:49.820275", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.5, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-10T15:34:35.342036", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.03, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}
+{"timestamp": "2026-09-10T15:35:43.519315", "status": "CLOSED", "pipeline_action": "CONTINUE", "error_rate": 0.01, "threshold": 0.02, "reason": "Data quality returned below threshold; pipeline resumed"}
+{"timestamp": "2026-09-10T16:03:57.180332", "status": "CLOSED", "pipeline_action": "CONTINUE", "error_rate": 0.01, "threshold": 0.02, "reason": "Data quality returned below threshold; pipeline resumed"}
+{"timestamp": "2026-09-10T16:21:47.539102", "status": "OPEN", "pipeline_action": "PAUSE", "error_rate": 0.5, "threshold": 0.02, "reason": "Data quality error rate exceeded 2%"}

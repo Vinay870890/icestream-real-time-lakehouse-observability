@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-08-31T18:06:10.380600",
+  "timestamp": "2026-09-10T22:10:00+05:30",
   "pipeline": "IceStream",
   "status": "OPEN",
-  "action": "QUARANTINE",
-  "error_rate": 0.2,
+  "action": "PAUSE",
+  "error_rate": 0.50,
   "threshold": 0.02,
-  "reason": "Data quality error rate exceeded 2%"
+  "reason": "Data quality error rate exceeded 2% threshold; invalid records quarantined"
 }

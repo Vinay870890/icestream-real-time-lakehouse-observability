@@ -13,10 +13,21 @@ def handle_pipeline_result(result):
             "incident": incident
         }
 
+    # Log pipeline resume/continue event
+    resume_result = {
+        "status": result["status"],
+        "pipeline_action": result["pipeline_action"],
+        "error_rate": result["error_rate"],
+        "threshold": result["threshold"],
+        "reason": "Data quality returned below threshold; pipeline resumed"
+    }
+
+    incident = log_incident(resume_result)
+
     return {
         "action": "CONTINUE",
         "pipeline_status": "RUNNING",
-        "incident": None
+        "incident": incident
     }
 
 
